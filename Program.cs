@@ -57,6 +57,7 @@ internal sealed class Shell : Form
     private bool _allowVisible;
     private bool _hotkeyTaken;
     private bool _exiting;
+    private DateTime _shownAt = DateTime.MinValue;
     private string _label = "Ctrl + Space";
 
     private const int HotkeyId = 1;
@@ -283,12 +284,17 @@ internal sealed class Shell : Form
 
     private void RegisterHotkey()
     {
-        foreach (var (mod, vk, label) in new (uint, uint, string)[]
-                 {
-                     (MOD_CONTROL, VK_SPACE, "Ctrl + Space"),
-                     (MOD_MENU, VK_SPACE, "Alt + Space"),
-                     (MOD_CONTROL | MOD_MENU, VK_K, "Ctrl + Alt + K"),
-                 })
+        var tries = new List<(uint mod, uint vk, string label)>();
+        string? custom = null;
+        try { custom = File.ReadAllText(Path.Combine(_root, "hotkey.txt")).Trim(); } catch { }
+        if (custom is not null && TryParseHotkey(custom, out uint cm, out uint cvk, out string cl))
+            tries.Add((cm, cvk, cl));
+        tries.Add((MOD_CONTROL, VK_SPACE, "Ctrl + Space"));
+        tries.Add((MOD_CONTROL | MOD_MENU, VK_SPACE, "Ctrl + Alt + Space"));
+        tries.Add((MOD_MENU, VK_SPACE, "Alt + Space"));
+        tries.Add((MOD_CONTROL | MOD_MENU, VK_K, "Ctrl + Alt + K"));
+
+        foreach (var (mod, vk, label) in tries)
         {
             if (RegisterHotKey(Handle, HotkeyId, mod | MOD_NOREPEAT, vk))
             {
@@ -301,9 +307,50 @@ internal sealed class Shell : Form
         Log("все горячие клавиши заняты — вызов через значок в трее или повторный запуск webtop.exe");
     }
 
+    /// <summary>«ctrl+alt+space», «win+d», «shift+f2» — модификаторы и одна клавиша.</summary>
+    private static bool TryParseHotkey(string spec, out uint mod, out uint vk, out string label)
+    {
+        mod = 0; vk = 0; label = "";
+        var parts = spec.Split('+', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 2) return false;
+        for (int i = 0; i < parts.Length - 1; i++)
+            switch (parts[i].ToLowerInvariant())
+            {
+                case "ctrl": case "control": mod |= MOD_CONTROL; break;
+                case "alt": case "menu": mod |= MOD_MENU; break;
+                case "shift": mod |= MOD_SHIFT; break;
+                case "win": case "super": mod |= MOD_WIN; break;
+                default: return false;
+            }
+        if (!TryVk(parts[^1], out vk)) return false;
+        label = string.Join(" + ", Array.ConvertAll(parts, Title));
+        return true;
+    }
+
+    private static string Title(string s) => s.Length == 1 ? s.ToUpperInvariant() : char.ToUpperInvariant(s[0]) + s[1..].ToLowerInvariant();
+
+    private static bool TryVk(string s, out uint vk)
+    {
+        s = s.ToLowerInvariant();
+        vk = s switch
+        {
+            "space" => VK_SPACE,
+            "enter" => VK_RETURN,
+            "esc" or "escape" => VK_ESCAPE,
+            "tab" => VK_TAB,
+            _ => 0,
+        };
+        if (vk != 0) return true;
+        if (s.Length == 1 && (s[0] >= 'a' && s[0] <= 'z' || s[0] >= '0' && s[0] <= '9'))
+        { vk = (uint)char.ToUpperInvariant(s[0]); return true; }
+        if (s.Length is 2 or 3 && s[0] == 'f' && int.TryParse(s.AsSpan(1), out int f) && f is >= 1 and <= 12)
+        { vk = (uint)(VK_F1 + f - 1); return true; }
+        return false;
+    }
+
     private void ToggleOverlay()
     {
-        if (Visible && ContainsFocus) HideOverlay();
+        if (Visible) HideOverlay();
         else ShowOverlay();
     }
 
@@ -315,23 +362,47 @@ internal sealed class Shell : Form
         Location = new Point(wa.Left + (wa.Width - w) / 2, wa.Top + Math.Max(Scale(40), (int)(wa.Height * 0.16)));
         ClientSize = new Size(w, h);
         _allowVisible = true;
+        _shownAt = DateTime.UtcNow;
         Show();
-        Activate();
-        BringToFront();
+        BringToForeground();
         _ = _ui.CoreWebView2?.ExecuteScriptAsync("window.__show&&window.__show()");
         Log("окно показано");
     }
 
+    /// <summary>
+    /// Фоновый процесс не имеет права уводить передний план, поэтому на мгновение
+    /// присоединяем свой ввод к чужу потоку — иначе окно показывается без фокуса.
+    /// </summary>
+    private void BringToForeground()
+    {
+        Activate();
+        if (GetForegroundWindow() == Handle) return;
+        IntPtr fg = GetForegroundWindow();
+        uint mine = GetCurrentThreadId();
+        uint other = GetWindowThreadProcessId(fg, out _);
+        if (other == 0 || other == mine) return;
+        if (!AttachThreadInput(mine, other, true)) return;
+        try
+        {
+            BringWindowToTop(Handle);
+            SetForegroundWindow(Handle);
+        }
+        finally { AttachThreadInput(mine, other, false); }
+    }
+
     private void HideOverlay()
     {
+        if (!Visible) return;
         Hide();
         SaveHistory();
+        Log("окно спрятано");
     }
 
     protected override void OnDeactivate(EventArgs e)
     {
         base.OnDeactivate(e);
-        if (Visible && !_exiting) HideOverlay();
+        // сразу после показа фокус может мигнуть — не прячемся в этот момент
+        if (Visible && !_exiting && (DateTime.UtcNow - _shownAt) > TimeSpan.FromMilliseconds(400)) HideOverlay();
     }
 
     protected override void OnClientSizeChanged(EventArgs e)
@@ -512,10 +583,16 @@ internal sealed class Shell : Form
 
     private const int
         WM_HOTKEY = 0x0400,
-        MOD_MENU = 0x0001, MOD_CONTROL = 0x0002, MOD_NOREPEAT = 0x4000,
-        VK_SPACE = 0x20, VK_K = 0x4B;
+        MOD_MENU = 0x0001, MOD_CONTROL = 0x0002, MOD_SHIFT = 0x0004, MOD_WIN = 0x0008, MOD_NOREPEAT = 0x4000,
+        VK_SPACE = 0x20, VK_K = 0x4B, VK_RETURN = 0x0D, VK_ESCAPE = 0x1B, VK_TAB = 0x09, VK_F1 = 0x70;
 
     [DllImport("user32.dll")] private static extern bool RegisterHotKey(IntPtr h, int id, uint mod, uint vk);
     [DllImport("user32.dll")] private static extern bool UnregisterHotKey(IntPtr h, int id);
     [DllImport("user32.dll")] private static extern bool DestroyIcon(IntPtr h);
+    [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr h);
+    [DllImport("user32.dll")] private static extern bool BringWindowToTop(IntPtr h);
+    [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+    [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
+    [DllImport("user32.dll")] private static extern bool AttachThreadInput(uint a, uint b, bool attach);
 }
