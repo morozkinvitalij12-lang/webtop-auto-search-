@@ -6,132 +6,103 @@
 <style>
 *{box-sizing:border-box;margin:0}
 :root{
-  --bg:#0a0b0d; --fg:#edf0f5; --dim:#727b8c; --dim2:#3f4657;
-  --hair:rgba(255,255,255,.075); --hair2:rgba(255,255,255,.14);
+  --fg:#edf0f5; --dim:#7d8698; --dim2:#4a5162;
+  --hair:rgba(255,255,255,.08); --hair2:rgba(255,255,255,.16);
 }
 html,body{height:100%}
 body{
-  background:var(--bg); color:var(--fg);
+  background:linear-gradient(180deg,#101318,#0a0b0d 62%); color:var(--fg);
   font:400 15px/1.45 -apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,Roboto,sans-serif;
   -webkit-font-smoothing:antialiased; overflow:hidden; user-select:none;
 }
-body.mode-site{background:transparent}
-.glow{position:fixed;inset:-20% -10% auto;height:70vh;pointer-events:none;
-  background:radial-gradient(50% 55% at 50% 0,rgba(120,150,255,.10),transparent 70%);
+.frame{position:fixed;inset:0;border:1px solid rgba(255,255,255,.10);border-radius:20px;pointer-events:none}
+.glow{position:fixed;left:-10%;right:-10%;top:-25%;height:70%;pointer-events:none;
+  background:radial-gradient(50% 55% at 50% 0,rgba(120,150,255,.13),transparent 70%);
   animation:breathe 14s ease-in-out infinite}
-@keyframes breathe{0%,100%{opacity:.55}50%{opacity:1}}
+@keyframes breathe{0%,100%{opacity:.5}50%{opacity:1}}
 @media (prefers-reduced-motion:reduce){.glow{animation:none}}
-@media (max-width:760px){.glow{display:none}}
 
-/* header: drag zone + window buttons */
-.bar{position:fixed;top:0;left:0;right:0;height:42px;display:flex;align-items:center;
-  justify-content:space-between;padding:0 12px 0 16px}
-.mark{font:600 12px/1 inherit;letter-spacing:.14em;text-transform:lowercase;color:var(--dim2)}
-.wbtns{display:flex;gap:2px}
-.wbtns button{width:30px;height:26px;border:0;background:none;color:var(--dim);
-  font:400 13px/1 inherit;cursor:default}
-.wbtns button:hover{color:var(--fg)}
-.wbtns button.x:hover{color:#ff6b6b}
+.wrap{position:absolute;inset:0;display:flex;flex-direction:column;padding:14px 20px 12px}
+.head{display:flex;align-items:center;gap:12px;height:22px;font-size:12px}
+.mark{font-weight:600;letter-spacing:.14em;text-transform:lowercase;color:var(--dim2)}
+.when{color:var(--dim2);letter-spacing:.04em}
+.key{margin-left:auto;padding:3px 8px;border:1px solid var(--hair);border-radius:999px;
+  color:var(--dim);font-size:11px;letter-spacing:.04em}
 
-/* stage */
-.stage{position:absolute;inset:0;display:flex;flex-direction:column;
-  align-items:center;justify-content:center;padding:0 32px;gap:0}
-.when{font-size:12px;letter-spacing:.1em;text-transform:lowercase;color:var(--dim2);margin-bottom:26px}
-.ask{width:100%;max-width:640px;display:flex;align-items:baseline;gap:12px;
-  border-bottom:1px solid var(--hair);padding:6px 2px 10px;transition:border-color .2s}
+.ask{display:flex;align-items:baseline;gap:12px;margin-top:6px;padding:2px 2px 9px;border-bottom:1px solid var(--hair)}
 .ask:focus-within{border-color:var(--hair2)}
 .ask input{flex:1;min-width:0;background:none;border:0;outline:0;color:var(--fg);
-  font:300 clamp(22px,3.2vw,30px)/1.2 inherit;letter-spacing:-.01em}
-.ask input::placeholder{color:var(--dim2)}
-.ask .kbd{font-size:12px;color:var(--dim2);transition:color .2s}
+  font:300 clamp(22px,2.6vw,28px)/1.25 inherit;letter-spacing:-.01em}
+.ask input::placeholder{color:#414857}
+.kbd{font-size:12px;color:#414857}
 .ask:focus-within .kbd{color:var(--dim)}
 
-/* answer */
-.answer{width:100%;max-width:640px;margin-top:30px;opacity:0;transform:translateY(4px);
-  transition:opacity .18s ease,transform .18s ease}
+.answer{margin-top:14px;opacity:0;transform:translateY(4px);transition:opacity .16s ease,transform .16s ease}
 .answer.on{opacity:1;transform:none}
-.hero{display:flex;align-items:center;gap:14px;padding:10px 12px;border-radius:14px;
-  border:1px solid transparent;cursor:default}
-.hero:hover{border-color:var(--hair);background:rgba(255,255,255,.02)}
-.tile{position:relative;flex:none;width:42px;height:42px;border-radius:11px;overflow:hidden;
-  display:grid;place-items:center;font-size:17px;font-weight:600}
-.tile img{position:absolute;inset:6px;width:30px;height:30px;object-fit:contain;opacity:0;transition:opacity .2s}
+.hero{display:flex;align-items:center;gap:13px;padding:8px 10px;border-radius:13px;border:1px solid transparent}
+.hero:hover{border-color:var(--hair);background:rgba(255,255,255,.03)}
+.tile{position:relative;flex:none;width:38px;height:38px;border-radius:10px;overflow:hidden;
+  display:grid;place-items:center;font-size:16px;font-weight:600}
+.tile img{position:absolute;inset:6px;width:26px;height:26px;object-fit:contain;opacity:0;transition:opacity .2s}
 .tile img.ok{opacity:1}
 .who{flex:1;min-width:0}
-.who b{display:block;font-weight:500;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.who span{display:block;font-size:13px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.why{flex:none;font-size:12px;color:var(--dim2);text-align:right}
-.why em{font-style:normal;color:var(--dim)}
-.also{display:flex;flex-wrap:wrap;gap:18px;padding:2px 12px 0;font-size:13px;color:var(--dim2)}
+.who b{display:block;font-weight:500;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.who span{display:block;font-size:12.5px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.why{flex:none;text-align:right;font-size:11.5px;color:var(--dim2);line-height:1.35}
+.why em{font-style:normal;display:block;color:var(--dim);max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.also{display:flex;flex-wrap:wrap;gap:16px;padding:4px 10px 0;font-size:12.5px;color:var(--dim2)}
 .also button{border:0;background:none;color:inherit;font:inherit;cursor:default;padding:0}
 .also button:hover{color:var(--fg)}
 .also b{font-weight:500;color:var(--dim)}
-.note{padding:16px 12px 0;font-size:12px;color:var(--dim2)}
-.note b{font-weight:500;color:var(--dim)}
-
-/* floating pill over a page */
-.pill{display:none;position:absolute;inset:8px 8px auto;height:56px;align-items:center;gap:2px;
-  padding:0 6px 0 10px;border-radius:14px;background:rgba(16,18,22,.92);
-  border:1px solid rgba(255,255,255,.09);backdrop-filter:blur(20px)}
-body.mode-site .stage,body.mode-site .bar,body.mode-site .glow{display:none}
-body.mode-site .pill{display:flex}
-.pill button{flex:none;width:32px;height:32px;border:0;border-radius:9px;background:none;
-  color:var(--dim);font-size:15px;line-height:1;cursor:default}
-.pill button:hover{color:var(--fg);background:rgba(255,255,255,.06)}
-.pill .sep{flex:none;width:1px;height:20px;background:var(--hair);margin:0 5px}
-.pill .name{flex:1;min-width:0;font-size:13px;white-space:nowrap;overflow:hidden;
-  text-overflow:ellipsis;color:var(--fg);padding-left:4px}
-.pill .name i{font-style:normal;color:var(--dim2)}
-.pill button.off{opacity:.28}
-.toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);display:none;
-  max-width:70%;padding:8px 14px;border-radius:10px;background:#171a20;
-  border:1px solid var(--hair2);font-size:13px;color:var(--dim)}
+.web{display:flex;align-items:center;flex-wrap:wrap;gap:10px;padding:11px 10px 0;font-size:12.5px;color:var(--dim2)}
+.web a{color:var(--dim);cursor:default;border-bottom:1px solid transparent}
+.web a:hover{color:var(--fg);border-color:var(--hair2)}
+.foot{margin-top:auto;display:flex;gap:14px;align-items:center;font-size:11.5px;color:#414a5a}
+.foot button{border:0;background:none;color:inherit;font:inherit;cursor:default;padding:0}
+.foot button:hover{color:var(--fg)}
+.foot .grow{margin-left:auto}
+.toast{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);display:none;max-width:80%;
+  padding:7px 12px;border-radius:9px;background:#171a20;border:1px solid var(--hair2);font-size:12.5px;color:var(--dim)}
 .toast.on{display:block}
 </style>
 </head>
-<body class="mode-search">
+<body>
 <div class="glow"></div>
+<div class="frame"></div>
 
-<div class="bar">
-  <div class="mark">webtop</div>
-  <div class="wbtns">
-    <button data-a="min">&#8211;</button>
-    <button data-a="max">&#9633;</button>
-    <button data-a="close" class="x">&#10005;</button>
+<div class="wrap">
+  <div class="head">
+    <div class="mark">webtop</div>
+    <div class="when" id="when"></div>
+    <div class="key" id="key">Ctrl + Space</div>
   </div>
-</div>
 
-<main class="stage">
-  <div class="when" id="when"></div>
   <div class="ask">
-    <input id="q" spellcheck="false" autocomplete="off" placeholder="две буквы хватит">
+    <input id="q" spellcheck="false" autocomplete="off" placeholder="две буквы, пара слов или адрес">
     <div class="kbd">&#8629;</div>
   </div>
+
   <div class="answer" id="answer">
     <div class="hero" id="hero"></div>
     <div class="also" id="also"></div>
-    <div class="note" id="note"></div>
+    <div class="web" id="web"></div>
   </div>
-</main>
 
-<div class="pill" id="pill">
-  <button data-a="search" title="поиск &#8212; Ctrl+L">&#8962;</button>
-  <button data-a="back" id="bback" title="назад">&#8592;</button>
-  <button data-a="fwd" id="bfwd" title="вперёд">&#8594;</button>
-  <div class="sep"></div>
-  <div class="name" id="pname"></div>
-  <div class="sep"></div>
-  <button data-a="reload" title="обновить">&#10227;</button>
-  <button data-a="stop" title="остановить звук">&#9632;</button>
+  <div class="foot">
+    <span>Esc &mdash; спрятать</span>
+    <span class="grow"></span>
+    <button data-a="hide">скрыть</button>
+    <button data-a="quit">выйти</button>
+  </div>
 </div>
 
 <div class="toast" id="toast"></div>
 
 <script>
-/* ---------------- список: popularity prior = порядковый номер ---------------- */
+/* ---------------- список: популярность = порядковый номер ---------------- */
 const RAW=[
-["YouTube","youtube.com","ютуб ютюб tube видео ролики клипы shorts","video"],
-["Google","google.com","гугл гугль поиск go ole","search"],
+["YouTube","youtube.com","ютуб ютюб tube видео ролики клипы shorts yt","video"],
+["Google","google.com","гугл гугль поиск go ole gg","search"],
 ["WhatsApp","web.whatsapp.com","ватсап вотсапп вацап wap mess","social"],
 ["Wikipedia","ru.wikipedia.org","вики википедия wikiped энциклопедия","ref"],
 ["Telegram","web.telegram.org","телеграм телега tg gram","social"],
@@ -169,9 +140,9 @@ const RAW=[
 ["RuMail","mail.ru","мейлру mailru почта","mail"],
 ["Yandex Mail","mail.yandex.ru","ямйл яндекспочта","mail"],
 ["Outlook","outlook.live.com","аутлук hotmail","mail"],
-[" kinopoisk","kinopoisk.ru","кинопоиск kp фильм","video"],
+["Kinopoisk","kinopoisk.ru","кинопоиск kp фильм","video"],
 ["Steam","store.steampowered.com","стим steam игры","games"],
-["Habr","habr.com","хабр Хабр Хабр","dev"],
+["Habr","habr.com","хабр","dev"],
 ["Rutube","rutube.ru","рутуб rtvideo","video"],
 ["DNS Shop","dns-shop.ru","днс dns-shop","shop"],
 ["Avito","avito.ru","авито","shop"],
@@ -194,7 +165,6 @@ const RAW=[
 ["Walmart","walmart.com","","shop"],
 ["Best Buy","bestbuy.com","","shop"],
 ["Zoom","zoom.us","зум зуми","work"],
-["ChatGPT Image","chat.openai.com","","ai"],
 ["DeepSeek","deepseek.com","дипсик deepseek ai","ai"],
 ["Gemini","gemini.google.com","gemini гуглаи","ai"],
 ["Claude","claude.ai","клод claude ai","ai"],
@@ -208,14 +178,13 @@ const RAW=[
 ["Cloud","icloud.com","клоуд аплдиск","tools"],
 ["Trello","trello.com","трело","work"],
 ["Canva","canva.com","канва","tools"],
-["Spotify","open.spotify.com","спотифай spоtify музыка","music"],
+["Spotify","open.spotify.com","спотифай музыка","music"],
 ["Yandex Music","music.yandex.ru","яндексмузыка ymmusic","music"],
 ["VK Music","music.vk.com","вкмузыка","music"],
 ["Boom","boom.ru","бум музыка","music"],
 ["Zvuk","zvuk.com","звук музыка","music"],
 ["Last.fm","last.fm","","music"],
 ["SoundCloud","soundcloud.com","саундклауд","music"],
-["Boomplay","boomplay.com","","music"],
 ["Roblox","roblox.com","роблокс игры","games"],
 ["SteamDB","steamdb.info","","games"],
 ["Epic Games","epicgames.com","эпик games","games"],
@@ -226,17 +195,13 @@ const RAW=[
 ["Lurkmore","lurkmore.to","лурк lurkmore","ref"],
 ["Wikimedia","wikimedia.org","","ref"],
 ["Britannica","britannica.com","","ref"],
-["Kinzel","kinzel.ru","","news"],
 ["Lenta","lenta.ru","лента новости","news"],
 ["RIA","ria.ru","риа новости","news"],
 ["TASS","tass.ru","тасс новости","news"],
-["Komsomolskaya","kp.ru","кмс kp комсомолка","news"],
-["Moscow Times","mooskovitimes.ru","","news"],
+["Komsomolskaya","kp.ru","кмс комсомолка","news"],
 ["Vedomosti","vedomosti.ru","ведомости","news"],
 ["Forbes","forbes.ru","форбс","news"],
-["Kodik","kodik.me","","video"],
 ["Rezka","rezka.ag","резка перевод","video"],
-["Kinod","kino-d.ru","","video"],
 ["Ivi","ivi.ru","иви film","video"],
 ["Okko","okko.ru","окко film","video"],
 ["Wink","wink.ru","винк film","video"],
@@ -245,81 +210,57 @@ const RAW=[
 ["Plex","plex.tv","","video"],
 ["Vimeo","vimeo.com","вимо","video"],
 ["Dailymotion","dailymotion.com","","video"],
-["Tuenti","tuenti.com","","social"],
 ["Odnoklassniki","ok.ru","одноклассники okru","social"],
 ["Mastodon","mastodon.social","мастодон","social"],
 ["Bluesky","bsky.app","блюскай","social"],
 ["Threads","threads.net","тредс","social"],
 ["Snapchat","snapchat.com","снэп","social"],
-["Weixin","weixin.qq.com","","social"],
 ["Xiaohongshu","xiaohongshu.com","","social"],
-["Soul","soulapp.cn","","social"],
-["Vkontakte Games","games.vk.com","","games"],
 ["Warthunder","warthunder.com","","games"],
-["World of Tanks","wotexpress.space","","games"],
 ["Maps Yandex","yandex.ru/maps","карты яндекс","tools"],
 ["Router admin","192.168.0.1","","tools"],
 ["Localhost","localhost","","dev"],
 ["Hugging Face","huggingface.co","huggingface","ai"],
 ["W3Schools","w3schools.com","","dev"],
 ["MDN","developer.mozilla.org","mdn доcs","dev"],
-["HuggingChat","huggingface.co/chat","","ai"],
 ["Archive","archive.org","архив web archive","ref"],
 ["Z-Library","z-library.sk","zlib книги","ref"],
-["Author.today","author.today","автор.today книги","ref"],
 ["Litres","litres.ru","литрес книги","ref"],
 ["Livelib","livelib.ru","","ref"],
-["Pirata","piratabanki.ru","","ref"],
 ["Booking","booking.com","букинг hotels","shop"],
 ["Ostrovok","ostrovok.ru","островок hotels","shop"],
-["Aviasales","aviasales.ru","авиаSales билеты","shop"],
+["Aviasales","aviasales.ru","авиа билеты","shop"],
 ["Tinkoff","tinkoff.ru","тиньков банк","fin"],
 ["Sberbank","sberbank.ru","сбер банк","fin"],
 ["Alfa-Bank","alfabank.ru","альфа банк","fin"],
 ["Gosuslugi","gosuslugi.ru","госуслуги госключ","fin"],
-["Npb","npb.ru","","fin"],
 ["Mvideo","mvideo.ru","мвидео","shop"],
 ["Citilink","citilink.ru","ситилинк","shop"],
-["Caviarn","caviar.club","","shop"],
 ["Lamoda","lamoda.com","ламода","shop"],
-["Gloria","gloria.ru","","shop"],
-["Sela","sela.ru","","shop"],
 ["IRecommend","irecommend.ru","айрекекоменд отзывы","ref"],
-["Otzyvy","otzyvy.ru","","ref"],
 ["Pikabu","pikabu.ru","пикабу","social"],
-["Pik","pikabu.ru","","social"],
-["Habr Career","career.habr.com","","work"],
-["hh.ru","hh.ru","хээх headhunter работа","work"],
-["Rabota","rabota.ru","","work"],
+["hh.ru","hh.ru","хээх headhunter работа вакансии","work"],
+["Rabota","rabota.ru","работа вакансии","work"],
 ["Drom","drom.ru","дром авто","shop"],
-["Auto.ru","auto.ru","авто.ру","shop"],
+["Auto.ru","auto.ru","авто ру","shop"],
 ["Youla","youla.ru","юла","shop"],
 ["Cian","cian.ru","циан недвижка","shop"],
-["M2","m2.ru","","shop"],
 ["Profi","profi.ru","профи","services"],
-["Youdo","youdo.ru","youdo","services"],
 ["Fl","fl.ru","фриланс","services"],
-["Kassa","kassa.yandex.ru","","services"],
 ["PayPal","paypal.com","палпал","fin"],
-["Binance","binance.com","байненс крпта","fin"],
+["Binance","binance.com","байненс крипта","fin"],
 ["CoinMarketCap","coinmarketcap.com","крипта котировки","fin"],
 ["TradingView","ru.tradingview.com","tradingview график","fin"],
-["Moscow","mos.ru","мос.ру мэр","services"],
-["Dgu","dgu.mos.ru","","services"],
+["Moscow","mos.ru","мос ру мэр","services"],
 ["Nalog","nalog.gov.ru","налог фнс","services"],
-["Rospotrebnadzor","rospotrebnadzor.ru","","services"],
-["Gibdd","gibdd.ru","","services"],
 ["Pochta","pochta.ru","почта россии","services"],
 ["SDEK","sdek.ru","сдек","services"],
 ["Boxberry","boxberry.ru","боксберри","services"],
-["CDEK","cdek.ru","","services"],
 ["Rzd","rzd.ru","ржд билеты","services"],
 ["Tutu","tutu.ru","туто билеты","services"],
-["Ozon Travel","ozon.travel","","services"],
-["101","101.ru","радио","music"],
 ["Radio","radiojar.com","","music"],
 ];
-const SITES=RAW.map((r,i)=>({n:r[0].trim(),d:r[1],u:"https://"+r[1],al:r[2].split(" ").filter(Boolean),
+const SITES=RAW.map((r,i)=>({n:r[0],d:r[1],u:"https://"+r[1],al:r[2].split(" ").filter(Boolean),
   t:r[3],rank:i+1,prior:Math.pow(1+i+1,-0.32)}));
 const TOTAL=SITES.length;
 const TWO=["co.uk","org.uk","com.br","com.au","co.jp","co.kr","co.in","com.mx","com.tr","co.nz","com.ua"];
@@ -332,17 +273,58 @@ function rootOf(h){
   return TWO.includes(tail)?p.slice(-3).join("."):tail;
 }
 
+/* ---------------- расширенный поиск ---------------- */
+/* куда отправить запрос, если сайт умеет искать по слову */
+const SQ={
+  "google.com":"https://www.google.com/search?q=",
+  "yandex.ru":"https://yandex.ru/search/?text=",
+  "duckduckgo.com":"https://duckduckgo.com/?q=",
+  "baidu.com":"https://www.baidu.com/s?wd=",
+  "ru.wikipedia.org":"https://ru.wikipedia.org/w/index.php?search=",
+  "youtube.com":"https://www.youtube.com/results?search_query=",
+  "github.com":"https://github.com/search?q=",
+  "ozon.ru":"https://www.ozon.ru/search/?text=",
+  "wildberries.ru":"https://www.wildberries.ru/catalog/0/search.aspx?search=",
+  "avito.ru":"https://www.avito.ru/rossiya?q=",
+  "aliexpress.ru":"https://aliexpress.ru/wholesale?SearchText=",
+  "reddit.com":"https://www.reddit.com/search/?q=",
+  "habr.com":"https://habr.com/ru/search/?q=",
+  "rutube.ru":"https://rutube.ru/search/?query=",
+  "twitch.tv":"https://www.twitch.tv/search?target_type=channels&term=",
+  "pinterest.com":"https://www.pinterest.com/search/pins/?q=",
+  "soundcloud.com":"https://soundcloud.com/search?q=",
+  "hh.ru":"https://hh.ru/search/vacancy?text=",
+  "x.com":"https://x.com/search?q=",
+  "vk.com":"https://vk.com/search?utf8=1&section=global&q=",
+};
+const WEB=["google.com","yandex.ru","duckduckgo.com","ru.wikipedia.org","youtube.com"];
+const CAT={
+  видео:"video",фильмы:"video",сериалы:"video",кино:"video",стримы:"video",мультики:"video",
+  музыка:"music",звук:"music",песни:"music",радио:"music",
+  новости:"news",
+  покупки:"shop",магазин:"shop","интернет-магазин":"shop",товары:"shop",цены:"shop",доставка:"shop",
+  банк:"fin",финансы:"fin",крипта:"fin",котировки:"fin",
+  работа:"work",вакансии:"work",фриланс:"services",
+  почта:"mail",письма:"mail",
+  карты:"tools",погода:"tools",инструменты:"tools",
+  игры:"games",играть:"games",
+  книги:"ref",энциклопедия:"ref",справка:"ref",отзывы:"ref",
+  соцсети:"social",общение:"social",переписка:"social",
+  разработка:"dev",код:"dev",программы:"dev",нейросеть:"ai",нейросети:"ai",
+  сервисы:"services",билеты:"services",документы:"services",
+};
+
 const QW="qwertyuiop[]asdfghjkl;'zxcvbnm,./", RU="йцукенгшщзхъфывапролджэячсмитьбю.";
 function toRU(q){let o="";for(const ch of q.toLowerCase())o+=QW.includes(ch)?RU[QW.indexOf(ch)]:ch;return o}
-const N=s=>s.toLowerCase().replace(/ё/g,"е").replace(/[^\p{L}\p{N}.]+/gu," ").trim();
+const N=s=>String(s).toLowerCase().replace(/ё/g,"е").replace(/[^\p{L}\p{N}.:-]+/gu," ").trim();
 
-/* ---------------- поиск и ранжирование ---------------- */
+/* ---------------- совпадение одного слова с сайтом ---------------- */
 function coreOf(d){return d.replace(/^(ru\.|com\.|co\.|www\.|m\.)/,"").split(".")[0]}
 function matchOne(q,s){
   const dom=N(coreOf(s.d)), name=N(s.n), als=s.al.map(N);
   if(q===dom||q===name||q===s.d||als.includes(q))return 1;
   if(dom.startsWith(q))return .88; if(name.startsWith(q))return .82;
-  if(als.some(a=>a===q))return .8; if(als.some(a=>a.startsWith(q)))return .74;
+  if(als.some(a=>a.startsWith(q)))return .74;
   if(s.d.startsWith(q))return .7;
   if(q.length<2)return .3;
   const words=[...new Set([dom,name,...als].join(" ").split(" "))];
@@ -355,34 +337,117 @@ function matchOne(q,s){
   return .28;
 }
 let HIST={}, LAST="";
-function score(s,q){
-  let m=matchOne(q,s);
-  if(!m){const alt=N(toRU(q));if(alt!==q)m=matchOne(alt,s)*.95}
-  if(!m)return 0;
-  let v=m*s.prior;
-  const h=HIST[rootOf(s.d)];
-  if(h){
-    v*=1+.22*Math.log(1+h.n);
-    if(h.t&&Date.now()-h.t<18e5)v*=1.5;
-    else if(h.t&&Date.now()-h.t>2592e6)v*=.93;
-  }
-  if(LAST&&LAST===rootOf(s.d))v*=1.06;
+function one(s,t){
+  let v=matchOne(t,s);
+  if(!v){const alt=N(toRU(t));if(alt&&alt!==t)v=matchOne(alt,s)*.95}
   return v;
 }
-function search(raw){
-  const q=N(raw).replace(/\s/g,"");
-  if(!q)return[];
+function boost(s,v){
+  if(!v)return 0;
+  let out=v*s.prior;
+  const h=HIST[rootOf(s.d)];
+  if(h){
+    out*=1+.22*Math.log(1+h.n);
+    if(h.t&&Date.now()-h.t<18e5)out*=1.5;
+    else if(h.t&&Date.now()-h.t>2592e6)out*=.93;
+  }
+  if(LAST&&LAST===rootOf(s.d))out*=1.06;
+  return out;
+}
+/* сила совпадения и итоговый вес с учётом истории */
+function siteScore(s,toks){
+  let sum=0,ok=0;
+  const min=toks.length>1?.45:.2; // несколько слов засчитываем только явным совпадениям
+  for(const t of toks){const v=one(s,t);if(v>=min){sum+=v;ok++}}
+  if(!ok)return null;
+  let m=sum/ok;
+  if(ok<toks.length)m*=Math.pow(.4,toks.length-ok);
+  else if(ok>1)m=Math.min(1,m*1.15);
+  return [m,boost(s,m)];
+}
+function bySites(toks){
   const out=[];
-  for(const s of SITES){const v=score(s,q);if(v>0)out.push([s,v])}
+  for(const s of SITES){const r=siteScore(s,toks);if(r)out.push([s,r[0],r[1]])}
+  out.sort((a,b)=>b[2]-a[2]||a[0].rank-b[0].rank);
+  return out;
+}
+function engineFor(t){
+  let best=null,bv=0;
+  for(const s of SITES){
+    if(!SQ[s.d])continue;
+    const v=one(s,t);
+    if(v>.82&&v>bv){bv=v;best=s}
+  }
+  return best;
+}
+function catHits(tag){
+  const out=SITES.filter(s=>s.t===tag).map(s=>[s,boost(s,1)]);
   out.sort((a,b)=>b[1]-a[1]||a[0].rank-b[0].rank);
   return out;
 }
 
-/* пустое поле: три сайта дня — стабильны на сутки */
+/* ---------------- разбор запроса ---------------- */
+function hit(n,d,u,why,site){return {n,d,u,why,site:site||null}}
+function urlGuess(text){
+  const s=text.trim().replace(/\s+/g,"").toLowerCase();
+  if(!s.includes("."))return null;
+  const m=s.match(/^(?:https?:\/\/)?((?:[a-z0-9_][-a-z0-9_]*\.)+[a-z]{2,}|localhost|\d{1,3}(?:\.\d{1,3}){3})(\/[^\s]*)?$/);
+  if(!m)return null;
+  const host=m[1], path=m[2]||"";
+  const root=rootOf(host), site=SITES.find(x=>rootOf(x.d)===root);
+  return hit(site?site.n:host,host+path,"https://"+host+path,"адрес",site);
+}
+function webHit(d,q){
+  const s=SITES.find(x=>x.d===d);
+  return hit(s?s.n:d,"искать «"+q+"» в интернете",SQ[d]+encodeURIComponent(q),"поиск в "+(s?s.n:d),s);
+}
+function webList(q){
+  const ds=[...WEB].sort((a,b)=>(HIST[rootOf(b)]?.n||0)-(HIST[rootOf(a)]?.n||0));
+  return ds.map(d=>webHit(d,q));
+}
+function whyTop(s,v){
+  const h=HIST[rootOf(s.d)];
+  if(h)return "открывали "+h.n+(h.n===1?" раз":" раза");
+  if(v>=.85)return "точное совпадение";
+  return "популярнее всех";
+}
+
+/* адрес → движок+запрос → категория → список → интернет */
+function plan(raw){
+  const text=String(raw||"").trim();
+  if(!text)return {hits:todays().map(s=>hit(s.n,s.d,s.u,"сегодня открывают",s)),cat:null,web:null,empty:true};
+  const addr=urlGuess(text);
+  if(addr)return {hits:[addr],cat:null,web:null};
+  const toks=N(text).split(" ").filter(Boolean);
+  if(!toks.length)return {hits:[],cat:null,web:text};
+
+  if(toks.length>1){
+    const e=engineFor(toks[0]);
+    if(e){
+      const rest=text.split(/\s+/).slice(1).join(" ");
+      return {hits:[hit(e.n,"запрос: "+rest,SQ[e.d]+encodeURIComponent(rest),"поиск в "+e.n,e)],cat:null,web:null};
+    }
+  }
+  if(toks.length===1){
+    const tag=CAT[toks[0]];
+    if(tag){
+      const rows=catHits(tag);
+      if(rows.length>2)
+        return {hits:rows.slice(0,5).map(([s,v])=>hit(s.n,s.d,s.u,whyTop(s,v),s)),cat:toks[0],catN:rows.length,web:null};
+    }
+  }
+  const rows0=bySites(toks);
+  const rows=toks.length>2?[]:rows0;   // длинная фраза — это запрос, а не название сайта
+  const best=rows.length?rows[0][1]:0;
+  const hits=rows.slice(0,5).map(([s,m,v])=>hit(s.n,s.d,s.u,whyTop(s,v),s));
+  return {hits,cat:null,web:best<.5?text:null};
+}
+
+/* сайты дня — стабильны на сутки */
 const h32=x=>{x=Math.imul(x^x>>>15,2246822519);x=Math.imul(x^x>>>13,3266489917);return(x^x>>>16)>>>0};
 function todays(){
   const d=new Date(),seed=d.getFullYear()*1e4+(d.getMonth()+1)*100+d.getDate();
-  const w=d.getDay(),hr=d.getHours();
+  const hr=d.getHours();
   const want=hr<11?["news","search","mail"]:hr<18?["work","dev","shop","search"]:["video","social","music","games"];
   const pool=SITES.filter(s=>s.rank<=90);
   const rank=x=>{const k=h32((x.rank*2654435761)^seed);
@@ -390,116 +455,129 @@ function todays(){
   return[...pool].sort((a,b)=>rank(a)-rank(b)).slice(0,3);
 }
 function whenText(){
-  const d=new Date(),hr=d.getHours(),wd=d.getDay();
+  const d=new Date(),hr=d.getHours();
   const part=hr<5?"ночи":hr<12?"утра":hr<18?"дня":"вечера";
-  const day=["воскресенье","понедельник","вторник","среда","четверг","пятница","суббота"][wd];
-  return day+", "+d.getHours()+":"+String(d.getMinutes()).padStart(2,"0")+" "+part;
+  const day=["воскресенье","понедельник","вторник","среда","четверг","пятница","суббота"][d.getDay()];
+  return day+", "+String(hr).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0")+" "+part;
 }
 
 /* ---------------- отрисовка ---------------- */
 const $=id=>document.getElementById(id);
 const el=(t,c,x)=>{const n=document.createElement(t);if(c)n.className=c;if(x!=null)n.textContent=x;return n};
-function tile(node,s){
-  const hue=h32(s.d.length*7+s.rank*31)%360;
-  const d=el("div","tile");d.style.background=`linear-gradient(145deg,hsl(${hue} 42% 24%),hsl(${(hue+38)%360} 38% 15%))`;
-  d.style.color=`hsl(${hue} 55% 84%)`;d.textContent=s.n[0].toUpperCase();
-  const img=new Image();img.onload=()=>img.classList.add("ok");img.src=`https://www.google.com/s2/favicons?domain=${s.d}&sz=128`;
-  d.appendChild(img);node.appendChild(d);
+function tile(node,h){
+  const s=h.site, key=s?s.d:(h.d.split("/")[0]||h.d);
+  const hue=h32(String(key).length*7+(s?s.rank:13)*31)%360;
+  const box=el("div","tile");
+  box.style.background=`linear-gradient(145deg,hsl(${hue} 42% 24%),hsl(${(hue+38)%360} 38% 15%))`;
+  box.style.color=`hsl(${hue} 55% 84%)`;
+  box.textContent=(h.n||"?")[0].toUpperCase();
+  if(s){
+    const img=new Image();
+    img.onload=()=>img.classList.add("ok");
+    img.src="https://www.google.com/s2/favicons?domain="+s.d+"&sz=128";
+    box.appendChild(img);
+  }
+  node.appendChild(box);
 }
 let current=[];
 function render(raw){
-  const ans=$("answer"),her=$("hero"),als=$("also"),note=$("note");
-  her.innerHTML="";als.innerHTML="";note.innerHTML="";
-  let list,headNote;
-  if(!raw.trim()){
-    list=todays().map(s=>[s,1]);current=list;
-    headNote="сегодня чаще всего открывают";
-  }else{
-    list=search(raw);current=list;
+  const p=plan(raw), her=$("hero"), als=$("also"), web=$("web");
+  her.innerHTML="";als.innerHTML="";web.innerHTML="";
+  current=p.hits;
+
+  if(!p.hits.length&&p.web){
+    const list=webList(p.web);
+    current=[list[0]];
+    showHero(her,list[0]);
+    for(const h of list.slice(1,4)){
+      const b=el("button",null,h.n);b.onclick=()=>open(h);als.append(b,el("b",null,"в интернете"));
+    }
+    $("answer").classList.add("on");return;
   }
-  if(!list.length){
-    ans.classList.remove("on");return;
+  if(!p.hits.length){$("answer").classList.remove("on");return}
+
+  showHero(her,p.hits[0]);
+  for(const h of p.hits.slice(1,3)){
+    const b=el("button",null,h.n);b.onclick=()=>open(h);als.append(b,el("b",null,h.d));
   }
-  const [top]=list[0];
-  tile(her,top);
-  const who=el("div","who");who.appendChild(el("b",null,top.n));who.appendChild(el("span",null,top.d));
-  her.appendChild(who);
-  const why=el("div","why");
-  const h=HIST[rootOf(top.d)];
-  if(raw.trim()){
-    const i=el("em",null,h?`открывали ${h.n}${h.n===1?" раз":" раза"}`:"популярнее всех");
-    why.append(i,el("div",null,"Enter"));
-  }else why.append(el("em",null,headNote),el("div",null,"Enter"));
-  her.appendChild(why);
-  her.onclick=()=>open(top.u);
-  if(list.length>1){
-    for(const [s] of list.slice(1,3)){
-      const b=el("button",null,s.n);b.onclick=()=>open(s.u);als.append(b,el("b",null,s.d));
+  if(p.cat)web.append(el("span",null,"категория «"+p.cat+"» — сайтов "+p.catN+", лучший сверху"));
+  else if(p.web){
+    web.append(el("span",null,"в интернете:"),el("span",null,"·"));
+    for(const h of webList(p.web)){
+      const a=el("a",null,h.n);a.onclick=e=>{e.preventDefault();open(h)};web.append(a);
     }
   }
-  if(raw.trim()&&list.length>3)note.append(
-    el("b",null,"ещё "+(Math.min(list.length,999)-3)),
-    " совпадений в списке из "+TOTAL+" — показаны три, лучший сверху");
-  ans.classList.add("on");
+  else if(p.empty)web.append(el("span",null,"в списке "+TOTAL+" сайтов; если нужного нет — пара слов или «гугл погода»"));
+  $("answer").classList.add("on");
 }
-function open(u){post({type:"go",url:u,ext:!send})}
+function showHero(her,h){
+  tile(her,h);
+  const who=el("div","who");
+  who.appendChild(el("b",null,h.n));
+  who.appendChild(el("span",null,h.d));
+  her.appendChild(who);
+  const why=el("div","why");
+  why.append(el("em",null,h.why),el("div",null,"Enter"));
+  her.appendChild(why);
+  her.onclick=()=>open(h);
+}
+function open(h){
+  if(!h||!h.u)return;
+  const r=rootOf(hostOf(h.u));
+  if(r){
+    LAST=r;
+    const c=HIST[r]||{n:0,t:0};
+    HIST[r]={n:c.n+1,t:Date.now()};
+  }
+  post({type:"go",url:h.u});
+}
 
 /* ---------------- мост с хостом ---------------- */
 const send=window.chrome&&window.chrome.webview?window.chrome.webview.postMessage.bind(window.chrome.webview):null;
-function post(m){if(send)send(m);else toast("открой через webtop.exe")}
+function post(m){if(send)send(m);else toast("печать только внутри webtop.exe")}
 function toast(t){const n=$("toast");n.textContent=t;n.classList.add("on");clearTimeout(toast._);toast._=setTimeout(()=>n.classList.remove("on"),2600)}
 
 $("q").addEventListener("input",e=>render(e.target.value));
 $("q").addEventListener("keydown",e=>{
-  if(e.key==="Enter"){e.preventDefault();if(current[0])open(current[0][0].u)}
-  if(e.key==="Escape"&&document.body.classList.contains("mode-search")){e.target.value="";render("")}
+  if(e.key==="Enter"){
+    e.preventDefault();
+    const text=e.target.value.trim();
+    open(current[0]||(text?webList(text)[0]:null));
+    return;
+  }
+  if(e.key==="Escape"){
+    if(e.target.value){e.target.value="";render("")}
+    else post({type:"hide"});
+  }
 });
 document.querySelectorAll("[data-a]").forEach(b=>b.onclick=()=>post({type:b.dataset.a}));
-document.addEventListener("mousedown",e=>{
-  const t=e.target.closest(".bar,.pill");
-  if(t&&!e.target.closest("button")&&!e.target.closest("input"))post({type:"drag"});
-});
 
 window.__ready=m=>{
   HIST={};
   for(const row of (m.history||[]))HIST[row.host]={n:row.n,t:row.t};
-  LAST=m.url?rootOf(hostOf(m.url)):"";
-  setMode(m.mode||"search");
-  if(m.mode==="site"){paintPill(m.url,m.title,!!m.back,!!m.fwd);setTimeout(()=>q().focus(),40)}
-  else render("");
+  LAST=m.history&&m.history.length?m.history[0].host:"";
+  if(m.hotkey)$("key").textContent=m.hotkey;
+  render($("q").value);
 };
-const q=()=>$("q");
-window.__mode=m=>setMode(m);
-function setMode(m){
-  const site=m==="site";
-  document.body.classList.toggle("mode-site",site);
-  document.body.classList.toggle("mode-search",!site);
-  if(!site){q().value="";render("");setTimeout(()=>q().focus(),40)}
-  else setTimeout(()=>q().select(),40);
-}
-window.__nav=n=>paintPill(n.url,n.title,!!n.back,!!n.fwd);
-function paintPill(url,title,back,fwd){
-  const host=hostOf(url||""),root=rootOf(host);
-  if(root)LAST=root;
-  const s=root?SITES.find(x=>rootOf(x.d)===root):null;
-  const name=s?s.n:host;
-  const p=$("pname");p.innerHTML="";
-  p.append(el("b",null,name||"веб-страница"));
-  if(title&&title.toLowerCase()!==String(name||"").toLowerCase())p.append(el("i",null," — "+title.replace(/\s+/g," ").slice(0,54)));
-  $("bback").classList.toggle("off",!back);
-  $("bfwd").classList.toggle("off",!fwd);
-}
-setInterval(()=>{if(document.body.classList.contains("mode-search"))$("when").textContent=whenText()},2e4);
+window.__show=()=>{
+  $("q").value="";render("");
+  setTimeout(()=>$("q").focus(),20);
+};
+setInterval(()=>{$("when").textContent=whenText()},2e4);
 $("when").textContent=whenText();
-if(send)post({type:"ready"});else{setMode("search");render("")}
+if(send)post({type:"ready"});else{render("");setTimeout(()=>$("q").focus(),50)}
 if(location.hash==="#selftest"){
-  const cases=["вид","jpjy","ozon","гугл","wiki","кино","x","ав"];
+  const cases=["вид","jpjy","ozon","гугл","wiki","кино","x","ав","карты яндекс","cgbcfyj",
+    "yt коты","asus zenbook купить","www.avito.ru/rossiya/noutbuki","музыка","рецепт блинов"];
   const lines=cases.map(c=>{
-    const r=search(c).slice(0,3);
-    return c+" -> "+(r.length?r.map(x=>x[0].n+" "+x[1].toFixed(3)).join(", "):"НЕТ");
+    const p=plan(c), h=p.hits[0];
+    return c+" -> "+(h?h.n+" | "+h.d:"НЕТ")+(p.web?" | +интернет":"")+(p.cat?" | категория":"");
   });
-  $("q").value="вид";render("вид");
+  $("q").value="карты яндекс";render("карты яндекс");
   post({type:"log",text:"SELFTEST\n"+lines.join("\n")+"\n"});
+}
+if(location.hash==="#selftest-go"){
+  setTimeout(()=>open({n:"проверка",d:"example.com",u:"https://example.com/",why:""}),400);
 }
 </script>
 </body>

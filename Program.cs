@@ -1,5 +1,8 @@
+using System.Diagnostics;
+using System.Drawing.Drawing2D;
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using Microsoft.Win32;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 
@@ -7,35 +10,58 @@ namespace WebTop;
 
 internal static class Program
 {
+    internal const string WindowTitle = "webtop";
+    internal const int WM_APP_SUMMON = 0x8001;
+
     [STAThread]
     private static void Main()
     {
         using var once = new Mutex(true, @"Local\webtop-single-instance", out bool isPrimary);
-        if (!isPrimary) return;
+        if (!isPrimary)
+        {
+            // повторный запуск exe = тот же вызов, что и горячая клавиша
+            IntPtr h = FindWindow(null, WindowTitle);
+            if (h != IntPtr.Zero) PostMessage(h, WM_APP_SUMMON, IntPtr.Zero, IntPtr.Zero);
+            return;
+        }
 
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
         Application.Run(new Shell());
     }
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern IntPtr FindWindow(string? cls, string? window);
+
+    [DllImport("user32.dll")]
+    private static extern bool PostMessage(IntPtr h, int msg, IntPtr w, IntPtr l);
 }
 
 /// <summary>
-/// Окно-оболочка: снизу — страница, сверху — интерфейс поиска.
-/// Адресной строки нет: интерфейс разворачивается на всё окно, а потом сворачивается в плавающую панель.
+/// Фоновая утилита: окна нет, пока не нажата глобальная клавиша.
+/// Тогда появляется стеклянная карточка, а найденный сайт открывается в браузере пользователя.
 /// </summary>
 internal sealed class Shell : Form
 {
-    private readonly WebView2 _page = new();
-    private readonly WebView2 _shell = new();
+    private readonly WebView2 _ui = new();
     private readonly Dictionary<string, Hit> _history = new(StringComparer.OrdinalIgnoreCase);
     private readonly System.Threading.Timer _flush;
-    private readonly Shortcuts _shortcuts;
     private readonly string _root;
 
+    private NotifyIcon? _tray;
+    private ToolStripMenuItem? _autostart;
+    private IntPtr _iconHandle = IntPtr.Zero;
     private bool _ready;
     private bool _dirty;
-    private string _mode = "search";
+    private bool _allowVisible;
+    private bool _hotkeyTaken;
+    private bool _exiting;
+    private string _label = "Ctrl + Space";
+
+    private const int HotkeyId = 1;
+    private static readonly Size CardCss = new(720, 300);
+    private const double CardAlpha = 0.9;
 
     private sealed class Hit
     {
@@ -48,31 +74,38 @@ internal sealed class Shell : Form
         _root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WebTop");
         _flush = new System.Threading.Timer(_ => SaveHistory(), null!, 3000, 3000);
 
-        Text = "webtop";
+        Text = Program.WindowTitle;
         BackColor = Color.FromArgb(10, 11, 13);
         FormBorderStyle = FormBorderStyle.None;
-        StartPosition = FormStartPosition.CenterScreen;
-        MinimumSize = new Size(560, 420);
-        ClientSize = new Size(1180, 760);
-        DoubleBuffered = true;
+        StartPosition = FormStartPosition.Manual;
+        ShowInTaskbar = false;
+        TopMost = true;
+        MinimizeBox = false;
+        MaximizeBox = false;
+        Opacity = CardAlpha;
+        ClientSize = new Size(Scale(CardCss.Width), Scale(CardCss.Height));
 
-        _page.DefaultBackgroundColor = Color.FromArgb(10, 11, 13);
-        _shell.DefaultBackgroundColor = Color.Transparent;
-        Controls.Add(_page);
-        Controls.Add(_shell);
+        _ui.DefaultBackgroundColor = Color.FromArgb(10, 11, 13);
+        Controls.Add(_ui);
 
         LoadHistory();
-        _shortcuts = new Shortcuts(this);
-        Application.AddMessageFilter(_shortcuts);
+        _ = Handle; // стартуем скрытыми, но хэндл, горячая клавиша и WebView2 нужны сразу
+    }
+
+    /* ---------------- фоновый режим ---------------- */
+
+    protected override void SetVisibleCore(bool value)
+    {
+        base.SetVisibleCore(_allowVisible && value);
     }
 
     protected override void OnHandleCreated(EventArgs e)
     {
         base.OnHandleCreated(e);
+        RegisterHotkey();
+        BuildTray();
         _ = InitAsync();
     }
-
-    /* ---------------- startup ---------------- */
 
     private async Task InitAsync()
     {
@@ -86,44 +119,53 @@ internal sealed class Shell : Form
             var opts = new CoreWebView2EnvironmentOptions(
                 "--no-default-browser-check --disable-features=Translate,msSmartScreenProtection,msEdgeFI");
             var env = await CoreWebView2Environment.CreateAsync(null, Path.Combine(_root, "cache"), opts);
+            await _ui.EnsureCoreWebView2Async(env);
 
-            await _page.EnsureCoreWebView2Async(env);
-            await _shell.EnsureCoreWebView2Async(env);
-
-            foreach (var w in new[] { _page, _shell })
-            {
-                var core = w.CoreWebView2 ?? throw new InvalidOperationException("WebView2 не инициализирован");
-                core.SetVirtualHostNameToFolderMapping("appassets", www, CoreWebView2HostResourceAccessKind.Deny);
-                core.Settings.AreDefaultContextMenusEnabled = DevTools;
-                core.Settings.IsStatusBarEnabled = false;
-                core.Settings.AreDevToolsEnabled = DevTools;
-            }
-
-            _shell.CoreWebView2!.WebMessageReceived += OnMessage;
-            _shell.CoreWebView2.NavigationCompleted += (_, a) =>
+            var core = _ui.CoreWebView2 ?? throw new InvalidOperationException("WebView2 не инициализирован");
+            core.Settings.AreDefaultContextMenusEnabled = DevTools;
+            core.Settings.IsStatusBarEnabled = false;
+            core.Settings.AreDevToolsEnabled = DevTools;
+            core.WebMessageReceived += OnMessage;
+            core.NavigationCompleted += (_, a) =>
             {
                 if (!a.IsSuccess) Log("start.html: " + a.WebErrorStatus);
             };
 
-            var core17 = _page.CoreWebView2!;
-            core17.NavigationCompleted += (_, _) => OnPageMoved();
-            core17.SourceChanged += (_, _) => OnPageMoved();
-            core17.DocumentTitleChanged += (_, _) => SendNav();
-            core17.NewWindowRequested += OnNewWindow;
-
             _ready = true;
-            LayoutChildren();
             string start = new Uri(Path.Combine(www, "start.html")).AbsoluteUri;
-            if (Environment.GetEnvironmentVariable("WEBTOP_SELFTEST") == "1") start += "#selftest";
-            _shell.CoreWebView2.Navigate(start);
+            string? selftest = Environment.GetEnvironmentVariable("WEBTOP_SELFTEST");
+            if (selftest == "1") start += "#selftest";
+            else if (selftest == "2") start += "#selftest-go";
+            core.Navigate(start);
+
+            FirstRunHint();
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this, "webtop не запустился:\n\n" + ex.Message +
-                "\n\nНужен WebView2 Runtime — он ставится вместе с Edge.", "webtop",
-                MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            Close();
+            if (_allowVisible)
+            {
+                MessageBox.Show(this, "webtop не запустился:\n\n" + ex.Message +
+                    "\n\nНужен WebView2 Runtime — он ставится вместе с Edge.", "webtop",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                Close();
+            }
+            else Log("старт не удался: " + ex.Message);
         }
+    }
+
+    private void FirstRunHint()
+    {
+        string marker = Path.Combine(_root, "ran.txt");
+        if (File.Exists(marker))
+        {
+            Log("запуск в фоне, окно скрыто до " + _label);
+            return;
+        }
+        try { File.WriteAllText(marker, DateTime.Now.ToString("O")); } catch { }
+        ShowOverlay();
+        _tray?.ShowBalloonTip(5000, "webtop теперь в фоне",
+            $"Ищите по {_label}. Найденное открывается в вашем браузере. Выйти — через меню значка в трее.",
+            ToolTipIcon.Info);
     }
 
     private static bool DevTools => Environment.GetEnvironmentVariable("WEBTOP_DEV") == "1";
@@ -134,89 +176,241 @@ internal sealed class Shell : Form
         catch { }
     }
 
-    /* ---------------- messages from the interface ---------------- */
+    /* ---------------- значок в трее ---------------- */
 
-    private async void OnMessage(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
+    private void BuildTray()
+    {
+        _iconHandle = MakeIcon();
+        _autostart = new ToolStripMenuItem("Запускать с Windows", null, (_, _) =>
+        {
+            _autostart!.Checked = TrySetAutostart(!_autostart.Checked);
+        })
+        { Checked = AutostartOn() };
+
+        var menu = new ContextMenuStrip();
+        menu.Items.Add(new ToolStripMenuItem($"Найти сайт  ·  {_label}", null, (_, _) => ShowOverlay())
+            { Font = new Font("Segoe UI", 9f, FontStyle.Bold) });
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(_autostart);
+        menu.Items.Add(new ToolStripMenuItem("Показать подсказку", null, (_, _) =>
+            _tray?.ShowBalloonTip(4000, "webtop", $"Вызвать поиск — {_label}.", ToolTipIcon.Info)));
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(new ToolStripMenuItem("Выход", null, (_, _) => ExitApp()));
+
+        _tray = new NotifyIcon
+        {
+            Icon = Icon.FromHandle(_iconHandle),
+            Text = $"webtop — поиск по {_label}",
+            ContextMenuStrip = menu,
+            Visible = true,
+        };
+        _tray.DoubleClick += (_, _) => ShowOverlay();
+    }
+
+    private void ExitApp()
+    {
+        _exiting = true;
+        Close();
+    }
+
+    /// <summary>Значок рисуем кодом: тёмная плитка со светлой плашкой поиска.</summary>
+    private static IntPtr MakeIcon()
+    {
+        using var bmp = new Bitmap(32, 32);
+        using (var g = Graphics.FromImage(bmp))
+        {
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.Clear(Color.Transparent);
+            var tile = new Rectangle(1, 1, 30, 30);
+            using (var back = Rounded(tile, 7))
+            {
+                using var fill = new LinearGradientBrush(tile, Color.FromArgb(40, 46, 58), Color.FromArgb(15, 17, 22), 60f);
+                g.FillPath(fill, back);
+                using var edge = new Pen(Color.FromArgb(90, 255, 255, 255));
+                g.DrawPath(edge, back);
+            }
+            using var bar = new SolidBrush(Color.FromArgb(237, 240, 245));
+            using var pill = Rounded(new Rectangle(7, 13, 18, 7), 3);
+            g.FillPath(bar, pill);
+        }
+        return bmp.GetHicon();
+    }
+
+    private static GraphicsPath Rounded(Rectangle r, int radius)
+    {
+        var path = new GraphicsPath();
+        int d = radius * 2;
+        if (d <= 0 || d > Math.Min(r.Width, r.Height))
+        {
+            path.AddRectangle(r);
+            return path;
+        }
+        path.AddArc(r.X, r.Y, d, d, 180, 90);
+        path.AddArc(r.Right - d, r.Y, d, d, 270, 90);
+        path.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90);
+        path.AddArc(r.X, r.Bottom - d, d, d, 90, 90);
+        path.CloseFigure();
+        return path;
+    }
+
+    /* ---------------- автозапуск ---------------- */
+
+    private const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
+
+    private static bool AutostartOn()
+    {
+        try
+        {
+            using var k = Registry.CurrentUser.OpenSubKey(RunKey);
+            return k?.GetValue(Program.WindowTitle) is string s && s.Contains("webtop", StringComparison.OrdinalIgnoreCase);
+        }
+        catch { return false; }
+    }
+
+    private static bool TrySetAutostart(bool on)
+    {
+        try
+        {
+            using var k = Registry.CurrentUser.OpenSubKey(RunKey, true) ?? Registry.CurrentUser.CreateSubKey(RunKey);
+            if (on) k.SetValue(Program.WindowTitle, "\"" + Environment.ProcessPath + "\"");
+            else k.DeleteValue(Program.WindowTitle, false);
+            return true;
+        }
+        catch { return AutostartOn(); }
+    }
+
+    /* ---------------- глобальная клавиша ---------------- */
+
+    private void RegisterHotkey()
+    {
+        foreach (var (mod, vk, label) in new (uint, uint, string)[]
+                 {
+                     (MOD_CONTROL, VK_SPACE, "Ctrl + Space"),
+                     (MOD_MENU, VK_SPACE, "Alt + Space"),
+                     (MOD_CONTROL | MOD_MENU, VK_K, "Ctrl + Alt + K"),
+                 })
+        {
+            if (RegisterHotKey(Handle, HotkeyId, mod | MOD_NOREPEAT, vk))
+            {
+                _label = label;
+                _hotkeyTaken = true;
+                Log("горячая клавиша: " + label);
+                return;
+            }
+        }
+        Log("все горячие клавиши заняты — вызов через значок в трее или повторный запуск webtop.exe");
+    }
+
+    private void ToggleOverlay()
+    {
+        if (Visible && ContainsFocus) HideOverlay();
+        else ShowOverlay();
+    }
+
+    private void ShowOverlay()
+    {
+        var wa = Screen.FromPoint(Cursor.Position).WorkingArea;
+        int w = Math.Min(Scale(CardCss.Width), wa.Width - Scale(32));
+        int h = Scale(CardCss.Height);
+        Location = new Point(wa.Left + (wa.Width - w) / 2, wa.Top + Math.Max(Scale(40), (int)(wa.Height * 0.16)));
+        ClientSize = new Size(w, h);
+        _allowVisible = true;
+        Show();
+        Activate();
+        BringToFront();
+        _ = _ui.CoreWebView2?.ExecuteScriptAsync("window.__show&&window.__show()");
+        Log("окно показано");
+    }
+
+    private void HideOverlay()
+    {
+        Hide();
+        SaveHistory();
+    }
+
+    protected override void OnDeactivate(EventArgs e)
+    {
+        base.OnDeactivate(e);
+        if (Visible && !_exiting) HideOverlay();
+    }
+
+    protected override void OnClientSizeChanged(EventArgs e)
+    {
+        base.OnClientSizeChanged(e);
+        _ui.Bounds = new Rectangle(Point.Empty, ClientSize);
+        ApplyRegion();
+    }
+
+    private void ApplyRegion()
+    {
+        using var path = Rounded(new Rectangle(0, 0, ClientSize.Width, ClientSize.Height), Scale(20));
+        Region = new Region(path);
+    }
+
+    /* ---------------- сообщения интерфейса ---------------- */
+
+    private void OnMessage(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
     {
         string type = "";
         string? url = null;
+        string? text = null;
         try
         {
             using var doc = JsonDocument.Parse(e.WebMessageAsJson);
-            if (doc.RootElement.TryGetProperty("type", out var t)) type = t.GetString() ?? "";
-            if (doc.RootElement.TryGetProperty("url", out var u)) url = u.GetString();
+            var root = doc.RootElement;
+            if (root.TryGetProperty("type", out var t)) type = t.GetString() ?? "";
+            if (root.TryGetProperty("url", out var u)) url = u.GetString();
+            if (root.TryGetProperty("text", out var tx)) text = tx.GetString();
         }
         catch { return; }
 
-        var core = _page.CoreWebView2;
         switch (type)
         {
-            case "ready": await InjectAsync(); break;
+            case "ready": _ = InjectAsync(); break;
             case "go":
                 if (!IsHttp(url)) break;
-                if (core is null) OpenExternal(url!);
-                else core.Navigate(url!);
-                SetMode("site");
+                RecordHit(url!);
+                OpenExternal(url!);
+                HideOverlay();
                 break;
-            case "home": case "search": SetMode("search"); break;
-            case "back": GoBack(); break;
-            case "fwd": GoForward(); break;
-            case "reload": core?.Reload(); break;
-            case "stop": _ = core?.ExecuteScriptAsync(PauseScript); break;
-            case "drag": BeginSystemDrag(); break;
-            case "min": WindowState = FormWindowState.Minimized; break;
-            case "max": WindowState = WindowState == FormWindowState.Maximized ? FormWindowState.Normal : FormWindowState.Maximized; break;
-            case "close": Close(); break;
-            case "external": if (IsHttp(url)) OpenExternal(url!); break;
-            case "log": Log(JsonDocument.Parse(e.WebMessageAsJson).RootElement.GetProperty("text").GetString() ?? ""); break;
+            case "hide": HideOverlay(); break;
+            case "quit": ExitApp(); break;
+            case "autostart":
+                if (_autostart is not null) _autostart.Checked = TrySetAutostart(!_autostart.Checked);
+                break;
+            case "log": Log(text ?? ""); break;
         }
     }
 
-    private const string PauseScript =
-        "(()=>{let n=0;document.querySelectorAll('video,audio').forEach(m=>{if(!m.paused){m.pause();n++}});" +
-        "document.querySelectorAll('iframe').forEach(f=>{try{f.contentWindow&&f.contentWindow.postMessage('{\\\"__webtop\\\":\\\"pause\\\"}','*')}catch(e){}});" +
-        "return n})()";
-
-    private void OnNewWindow(object? sender, CoreWebView2NewWindowRequestedEventArgs e)
+    private void RecordHit(string url)
     {
-        e.Handled = true;
-        if (IsHttp(e.Uri)) _page.CoreWebView2?.Navigate(e.Uri);
+        string host = HostOf(url);
+        if (host.Length == 0) return;
+        string key = "https://" + host;
+        if (!_history.TryGetValue(key, out var hit)) _history[key] = hit = new Hit();
+        hit.N++;
+        hit.T = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        _dirty = true;
     }
 
-    /* ---------------- navigation state ---------------- */
-
-    private void OnPageMoved()
+    private void OpenExternal(string url)
     {
-        string? src = _page.CoreWebView2?.Source;
-        if (IsHttp(src))
+        try
         {
-            if (!_history.TryGetValue(src!, out var hit)) _history[src!] = hit = new Hit();
-            hit.N++;
-            hit.T = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            _dirty = true;
+            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+            Log("открыто в браузере: " + url);
         }
-        SendNav();
-    }
-
-    private async void SendNav()
-    {
-        var shellCore = _shell.CoreWebView2;
-        if (!_ready || shellCore is null) return;
-        var page = _page.CoreWebView2;
-        string json = JsonSerializer.Serialize(new
+        catch (Exception ex)
         {
-            url = SafeUrl(page?.Source),
-            title = Clean(page?.DocumentTitle),
-            back = page?.CanGoBack ?? false,
-            fwd = page?.CanGoForward ?? false,
-        });
-        try { await shellCore.ExecuteScriptAsync("window.__nav&&window.__nav(" + json + ")"); } catch { }
+            Log("браузер не открылся: " + ex.Message);
+            _tray?.ShowBalloonTip(4000, "webtop", "Не удалось открыть браузер: " + ex.Message, ToolTipIcon.Warning);
+        }
     }
 
     private async Task InjectAsync()
     {
-        var shellCore = _shell.CoreWebView2;
-        if (!_ready || shellCore is null) return;
+        var core = _ui.CoreWebView2;
+        if (!_ready || core is null) return;
 
         var byHost = new Dictionary<string, Hit>(StringComparer.OrdinalIgnoreCase);
         foreach (var (url, hit) in _history)
@@ -229,84 +423,11 @@ internal sealed class Shell : Form
         }
         var snapshot = byHost.OrderByDescending(p => p.Value.T).Take(200)
             .Select(p => new { host = p.Key, n = p.Value.N, t = p.Value.T });
-        var page = _page.CoreWebView2;
-        string json = JsonSerializer.Serialize(new
-        {
-            history = snapshot,
-            mode = _mode,
-            url = SafeUrl(page?.Source),
-            title = Clean(page?.DocumentTitle),
-            back = page?.CanGoBack ?? false,
-            fwd = page?.CanGoForward ?? false,
-        });
-        try { await shellCore.ExecuteScriptAsync("window.__ready&&window.__ready(" + json + ")"); } catch { }
+        string json = JsonSerializer.Serialize(new { history = snapshot, hotkey = _label });
+        try { await core.ExecuteScriptAsync("window.__ready&&window.__ready(" + json + ")"); } catch { }
     }
 
-    private void SetMode(string mode)
-    {
-        bool changed = _mode != mode;
-        _mode = mode;
-        if (changed)
-        {
-            LayoutChildren();
-            _ = _shell.CoreWebView2?.ExecuteScriptAsync("window.__mode&&window.__mode(\"" + mode + "\")");
-        }
-        if (mode == "search") _shell.Focus();
-        else _page.Focus();
-    }
-
-    internal void ShowSearch() => SetMode("search");
-    internal void GoBack() { if (_page.CoreWebView2?.CanGoBack == true) _page.CoreWebView2.GoBack(); else SetMode("search"); }
-    internal void GoForward() => _page.CoreWebView2?.GoForward();
-    internal void ReloadPage() => _page.CoreWebView2?.Reload();
-    internal bool InSiteMode => _mode == "site";
-
-    /* ---------------- layout ---------------- */
-
-    private void LayoutChildren()
-    {
-        var full = new Rectangle(Point.Empty, ClientSize);
-        _page.Bounds = full;
-        _shell.Bounds = _mode == "search" ? full : PillRect();
-        _shell.BringToFront();
-    }
-
-    private Rectangle PillRect()
-    {
-        int w = Math.Min(Scale(600), ClientSize.Width - Scale(16));
-        int x = Math.Max(Scale(8), (ClientSize.Width - w) / 2);
-        return new Rectangle(x, 0, w, Scale(72));
-    }
-
-    private int Scale(int css) => (int)Math.Round(css * DeviceDpi / 96f);
-
-    protected override void OnClientSizeChanged(EventArgs e)
-    {
-        base.OnClientSizeChanged(e);
-        LayoutChildren();
-    }
-
-    protected override void OnFormClosed(FormClosedEventArgs e)
-    {
-        _flush.Dispose();
-        SaveHistory();
-        Application.RemoveMessageFilter(_shortcuts);
-        base.OnFormClosed(e);
-    }
-
-    private void BeginSystemDrag()
-    {
-        ReleaseCapture();
-        _ = SendMessage(Handle, WM_NCLBUTTONDOWN, (IntPtr)HTCAPTION, IntPtr.Zero);
-    }
-
-    private void OpenExternal(string url)
-    {
-        try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true }); }
-        catch { }
-    }
-
-    /* ---------------- history file ---------------- */
+    /* ---------------- история ---------------- */
 
     private string HistoryPath => Path.Combine(_root, "history.json");
 
@@ -318,7 +439,7 @@ internal sealed class Shell : Form
             using var doc = JsonDocument.Parse(File.ReadAllText(HistoryPath));
             foreach (var row in doc.RootElement.EnumerateArray())
             {
-                if (row.TryGetProperty("u", out var uu) is false) continue;
+                if (!row.TryGetProperty("u", out var uu)) continue;
                 string? u = uu.GetString();
                 if (!IsHttp(u)) continue;
                 _history[u!] = new Hit
@@ -344,100 +465,36 @@ internal sealed class Shell : Form
         catch { }
     }
 
-    /* ---------------- window without a frame, but with snap and shadow ---------------- */
-
-    protected override CreateParams CreateParams
-    {
-        get
-        {
-            var cp = base.CreateParams;
-            cp.Style |= WS_CAPTION | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_THICKFRAME | WS_SYSMENU;
-            return cp;
-        }
-    }
+    /* ---------------- сообщения окна ---------------- */
 
     protected override void WndProc(ref Message m)
     {
-        if (m.Msg == WM_NCCALCSIZE && m.WParam != IntPtr.Zero)
+        if ((m.Msg == WM_HOTKEY && m.WParam == (IntPtr)HotkeyId) || m.Msg == Program.WM_APP_SUMMON)
         {
-            var info = Marshal.PtrToStructure<NCCALCULATE>(m.LParam);
-            if (WindowState == FormWindowState.Maximized)
-            {
-                int pad = (int)Math.Round((GetSystemMetrics(SM_CXSIZEFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER)) * DeviceDpi / 96f);
-                info.Rc1.Top += pad; info.Rc1.Left += pad; info.Rc1.Right -= pad; info.Rc1.Bottom -= pad;
-            }
-            Marshal.StructureToPtr(info, m.LParam, true);
+            ToggleOverlay();
             m.Result = IntPtr.Zero;
-            return;
-        }
-        if (m.Msg == WM_GETMINMAXINFO)
-        {
-            var mmi = Marshal.PtrToStructure<MINMAXINFO>(m.LParam);
-            var mi = new MONITORINFO { CbSize = Marshal.SizeOf<MONITORINFO>() };
-            if (GetMonitorInfo(MonitorFromWindow(Handle, MONITOR_DEFAULTTONEAREST), ref mi))
-            {
-                mmi.MaxPosition = new Point(mi.Work.Left - mi.Rect.Left, mi.Work.Top - mi.Rect.Top);
-                mmi.MaxSize = new Point(mi.Work.Width, mi.Work.Height);
-            }
-            mmi.MinTrackSize = new Point(Scale(560), Scale(420));
-            Marshal.StructureToPtr(mmi, m.LParam, true);
-            m.Result = IntPtr.Zero;
-            return;
-        }
-        if (m.Msg == WM_NCHITTEST && WindowState == FormWindowState.Normal)
-        {
-            base.WndProc(ref m);
-            int raw = unchecked((int)(long)m.LParam);
-            var pt = PointToClient(new Point(raw & 0xFFFF, unchecked((int)((raw >> 16) & 0xFFFF))));
-            int e = Scale(7);
-            bool left = pt.X < e, right = pt.X > ClientSize.Width - e;
-            bool top = pt.Y < e, bottom = pt.Y > ClientSize.Height - e;
-            m.Result = (left && top) ? HTTOPLEFT : (right && top) ? HTTOPRIGHT
-                : (left && bottom) ? HTBOTTOMLEFT : (right && bottom) ? HTBOTTOMRIGHT
-                : left ? HTLEFT : right ? HTRIGHT : top ? HTTOP : bottom ? HTBOTTOM : m.Result;
             return;
         }
         base.WndProc(ref m);
     }
 
-    /* ---------------- shortcuts, even while a site has focus ---------------- */
-
-    private sealed class Shortcuts(Shell owner) : IMessageFilter
+    protected override void OnFormClosed(FormClosedEventArgs e)
     {
-        public bool PreFilterMessage(ref Message m)
-        {
-            if (m.Msg != WM_KEYDOWN || !owner.ContainsFocus) return false;
-            var key = (Keys)(int)m.WParam;
-            bool ctrl = (Control.ModifierKeys & Keys.Control) != 0;
-            bool alt = (Control.ModifierKeys & Keys.Alt) != 0;
-            if (ctrl && key == Keys.L) { owner.ShowSearch(); return true; }
-            if (key == Keys.Escape && owner.InSiteMode) { owner.ShowSearch(); return true; }
-            if (alt && key == Keys.Left) { owner.GoBack(); return true; }
-            if (alt && key == Keys.Right) { owner.GoForward(); return true; }
-            if (key == Keys.F5) { owner.ReloadPage(); return true; }
-            return false;
-        }
+        if (_hotkeyTaken) UnregisterHotKey(Handle, HotkeyId);
+        _tray?.Dispose();
+        if (_iconHandle != IntPtr.Zero) DestroyIcon(_iconHandle);
+        _flush.Dispose();
+        SaveHistory();
+        base.OnFormClosed(e);
     }
 
-    /* ---------------- helpers + win32 ---------------- */
+    /* ---------------- helpers ---------------- */
+
+    private int Scale(int css) => (int)Math.Round(css * DeviceDpi / 96f);
 
     private static bool IsHttp(string? s) =>
         s is not null && (s.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
                           s.StartsWith("https://", StringComparison.OrdinalIgnoreCase));
-
-    private static string? Clean(string? s)
-    {
-        if (s is null) return null;
-        s = s.Trim();
-        return s.Length == 0 ? null : s.Length > 120 ? s[..120] : s;
-    }
-
-    private static string? SafeUrl(string? s)
-    {
-        if (s is null) return null;
-        foreach (char c in s) if (c is < ' ' or > '~') return null;
-        return Uri.IsWellFormedUriString(s, UriKind.Absolute) ? s : null;
-    }
 
     private static readonly string[] TwoLevel =
         ["co.uk", "org.uk", "com.br", "com.au", "co.jp", "co.kr", "co.in", "com.mx", "com.tr", "co.nz", "com.ua"];
@@ -453,29 +510,12 @@ internal sealed class Shell : Form
         return Array.IndexOf(TwoLevel, tail) >= 0 ? string.Join(".", parts[^3..]) : tail;
     }
 
-    [StructLayout(LayoutKind.Sequential)]
-    private struct RECT { public int Left, Top, Right, Bottom; public readonly int Width => Right - Left; public readonly int Height => Bottom - Top; }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct NCCALCULATE { public RECT Rc1, Rc2, Rc3; }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct MINMAXINFO { public Point Reserved, MaxSize, MaxPosition, MinTrackSize, MaxTrackSize; }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct MONITORINFO { public int CbSize; public RECT Rect; public RECT Work; public uint Flags; }
-
     private const int
-        WM_KEYDOWN = 0x0100, WM_NCCALCSIZE = 0x0083, WM_GETMINMAXINFO = 0x0024, WM_NCHITTEST = 0x0084,
-        WM_NCLBUTTONDOWN = 0x00A1, WS_CAPTION = 0x00C00000, WS_SYSMENU = 0x00080000,
-        WS_THICKFRAME = 0x00040000, WS_MINIMIZEBOX = 0x00020000, WS_MAXIMIZEBOX = 0x00010000,
-        HTTOPLEFT = 13, HTTOPRIGHT = 14, HTBOTTOMLEFT = 16, HTBOTTOMRIGHT = 17,
-        HTCAPTION = 2, HTLEFT = 10, HTRIGHT = 11, HTTOP = 12, HTBOTTOM = 15,
-        SM_CXSIZEFRAME = 32, SM_CXPADDEDBORDER = 92, MONITOR_DEFAULTTONEAREST = 2;
+        WM_HOTKEY = 0x0400,
+        MOD_MENU = 0x0001, MOD_CONTROL = 0x0002, MOD_NOREPEAT = 0x4000,
+        VK_SPACE = 0x20, VK_K = 0x4B;
 
-    [DllImport("user32.dll")] private static extern bool ReleaseCapture();
-    [DllImport("user32.dll")] private static extern IntPtr SendMessage(IntPtr h, int msg, IntPtr w, IntPtr l);
-    [DllImport("user32.dll")] private static extern int GetSystemMetrics(int index);
-    [DllImport("user32.dll")] private static extern IntPtr MonitorFromWindow(IntPtr h, uint flags);
-    [DllImport("user32.dll")] private static extern bool GetMonitorInfo(IntPtr h, ref MONITORINFO info);
+    [DllImport("user32.dll")] private static extern bool RegisterHotKey(IntPtr h, int id, uint mod, uint vk);
+    [DllImport("user32.dll")] private static extern bool UnregisterHotKey(IntPtr h, int id);
+    [DllImport("user32.dll")] private static extern bool DestroyIcon(IntPtr h);
 }
