@@ -10,7 +10,7 @@ webtop живёт в фоне: по `Ctrl+Alt+Space` поверх любого �
 
 ## Скачать
 
-[Releases → webtop-windows-x64.exe](/releases/latest) — один файл ~50 МБ, Windows 10/11 x64.
+[Releases → webtop-windows-x64.exe](https://github.com/morozkinvitalij12-lang/webtop-auto-search-/releases/latest) — один файл ~50 МБ, Windows 10/11 x64.
 Нужен WebView2 Runtime (уже есть в Windows 11 и в любом установленном Edge).
 Устанавливать ничего не надо: скачал → запустил → он в трее.
 
