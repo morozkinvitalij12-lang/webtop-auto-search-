@@ -55,12 +55,13 @@ internal sealed class Shell : Form
     private bool _ready;
     private bool _dirty;
     private bool _allowVisible;
-    private bool _hotkeyTaken;
     private bool _exiting;
+    private readonly System.Windows.Forms.Timer _poll = new() { Interval = 20 };
+    private uint _hotkeyMod, _hotkeyVk;
+    private bool _comboWasDown;
     private DateTime _shownAt = DateTime.MinValue;
-    private string _label = "Ctrl + Space";
+    private string _label = "Ctrl + Alt + Space";
 
-    private const int HotkeyId = 1;
     private static readonly Size CardCss = new(720, 300);
     private const double CardAlpha = 0.9;
 
@@ -90,7 +91,7 @@ internal sealed class Shell : Form
         Controls.Add(_ui);
 
         LoadHistory();
-        _ = Handle; // стартуем скрытыми, но хэндл, горячая клавиша и WebView2 нужны сразу
+        _ = Handle; // стартуем скрытыми, но хэндл нужен сразу: трей, вызов вторым экземпляром, WebView2
     }
 
     /* ---------------- фоновый режим ---------------- */
@@ -103,7 +104,7 @@ internal sealed class Shell : Form
     protected override void OnHandleCreated(EventArgs e)
     {
         base.OnHandleCreated(e);
-        RegisterHotkey();
+        StartListening();
         BuildTray();
         _ = InitAsync();
     }
@@ -163,7 +164,7 @@ internal sealed class Shell : Form
             return;
         }
         try { File.WriteAllText(marker, DateTime.Now.ToString("O")); } catch { }
-        ShowOverlay();
+        ShowOverlay("первый запуск");
         _tray?.ShowBalloonTip(5000, "webtop теперь в фоне",
             $"Ищите по {_label}. Найденное открывается в вашем браузере. Выйти — через меню значка в трее.",
             ToolTipIcon.Info);
@@ -189,7 +190,7 @@ internal sealed class Shell : Form
         { Checked = AutostartOn() };
 
         var menu = new ContextMenuStrip();
-        menu.Items.Add(new ToolStripMenuItem($"Найти сайт  ·  {_label}", null, (_, _) => ShowOverlay())
+        menu.Items.Add(new ToolStripMenuItem($"Найти сайт  ·  {_label}", null, (_, _) => ShowOverlay("меню трей"))
             { Font = new Font("Segoe UI", 9f, FontStyle.Bold) });
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(_autostart);
@@ -205,7 +206,7 @@ internal sealed class Shell : Form
             ContextMenuStrip = menu,
             Visible = true,
         };
-        _tray.DoubleClick += (_, _) => ShowOverlay();
+        _tray.DoubleClick += (_, _) => ShowOverlay("двойной клик по трею");
     }
 
     private void ExitApp()
@@ -282,37 +283,57 @@ internal sealed class Shell : Form
 
     /* ---------------- глобальная клавиша ---------------- */
 
-    private void RegisterHotkey()
+    /// <summary>
+    /// Клавишу не регистрируем и не перехватываем, а опрашиваем: GetAsyncKeyState видит её
+    /// физическое состояние, поэтому комбинацию не может «съесть» ни переключатель раскладки,
+    /// ни чужой перехватчик, и клавиши полностью остаются всем остальным окнам.
+    /// </summary>
+    private void StartListening()
     {
-        var tries = new List<(uint mod, uint vk, string label)>();
         string? custom = null;
         try { custom = File.ReadAllText(Path.Combine(_root, "hotkey.txt")).Trim(); } catch { }
-        if (custom is not null && TryParseHotkey(custom, out uint cm, out uint cvk, out string cl))
-            tries.Add((cm, cvk, cl));
-        tries.Add((MOD_CONTROL, VK_SPACE, "Ctrl + Space"));
-        tries.Add((MOD_CONTROL | MOD_MENU, VK_SPACE, "Ctrl + Alt + Space"));
-        tries.Add((MOD_MENU, VK_SPACE, "Alt + Space"));
-        tries.Add((MOD_CONTROL | MOD_MENU, VK_K, "Ctrl + Alt + K"));
-
-        foreach (var (mod, vk, label) in tries)
+        if (custom is not null && TryParseHotkey(custom, out uint mod, out uint vk, out string label))
         {
-            if (RegisterHotKey(Handle, HotkeyId, mod | MOD_NOREPEAT, vk))
-            {
-                _label = label;
-                _hotkeyTaken = true;
-                Log("горячая клавиша: " + label);
-                return;
-            }
+            (_hotkeyMod, _hotkeyVk, _label) = (mod, vk, label);
         }
-        Log("все горячие клавиши заняты — вызов через значок в трее или повторный запуск webtop.exe");
+        else
+        {
+            (_hotkeyMod, _hotkeyVk, _label) = (MOD_CONTROL | MOD_MENU, VK_SPACE, "Ctrl + Alt + Space");
+            if (custom is not null) Log("комбинацию из hotkey.txt не понял: " + custom);
+        }
+
+        // уже зажатая комбинация не должна сработать в момент старта
+        _comboWasDown = Held(_hotkeyMod) && (GetAsyncKeyState((int)_hotkeyVk) & 0x8000) != 0;
+        _poll.Tick += OnPollTick;
+        _poll.Start();
+        Log("слушаю клавишу: " + _label);
     }
 
-    /// <summary>«ctrl+alt+space», «win+d», «shift+f2» — модификаторы и одна клавиша.</summary>
+    private void OnPollTick(object? sender, EventArgs e)
+    {
+        if (_exiting) return;
+        bool mods = Held(_hotkeyMod);
+        int state = GetAsyncKeyState((int)_hotkeyVk);
+        bool down = (state & 0x8000) != 0;
+        // длинное нажатие ловим по краю, тап короче тика — по младшему биту, но только когда
+        // клавиша уже отпущена: автоповтор удерживаемой клавиши тоже взводит этот бит
+        if (mods && (down ? !_comboWasDown : (state & 1) != 0)) ToggleOverlay("клавиша");
+        _comboWasDown = mods && down;
+    }
+
+    /// <summary>Нужные модификаторы зажаты; лишние (зажатый в игре Shift) не мешают.</summary>
+    private static bool Held(uint mod) =>
+        ((mod & MOD_CONTROL) == 0 || GetAsyncKeyState(VK_CONTROL) < 0) &&
+        ((mod & MOD_MENU) == 0 || GetAsyncKeyState(VK_MENU) < 0) &&
+        ((mod & MOD_SHIFT) == 0 || GetAsyncKeyState(VK_SHIFT) < 0) &&
+        ((mod & MOD_WIN) == 0 || GetAsyncKeyState(VK_LWIN) < 0 || GetAsyncKeyState(VK_RWIN) < 0);
+
+    /// <summary>«ctrl+alt+space», «win+d», «f9» — модификаторы (можно ни одного) и одна клавиша.</summary>
     private static bool TryParseHotkey(string spec, out uint mod, out uint vk, out string label)
     {
         mod = 0; vk = 0; label = "";
         var parts = spec.Split('+', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length < 2) return false;
+        if (parts.Length == 0) return false;
         for (int i = 0; i < parts.Length - 1; i++)
             switch (parts[i].ToLowerInvariant())
             {
@@ -348,13 +369,13 @@ internal sealed class Shell : Form
         return false;
     }
 
-    private void ToggleOverlay()
+    private void ToggleOverlay(string from)
     {
-        if (Visible) HideOverlay();
-        else ShowOverlay();
+        if (Visible) HideOverlay(from);
+        else ShowOverlay(from);
     }
 
-    private void ShowOverlay()
+    private void ShowOverlay(string from)
     {
         var wa = Screen.FromPoint(Cursor.Position).WorkingArea;
         int w = Math.Min(Scale(CardCss.Width), wa.Width - Scale(32));
@@ -366,7 +387,7 @@ internal sealed class Shell : Form
         Show();
         BringToForeground();
         _ = _ui.CoreWebView2?.ExecuteScriptAsync("window.__show&&window.__show()");
-        Log("окно показано");
+        Log("окно показано · вызов: " + from);
     }
 
     /// <summary>
@@ -390,19 +411,19 @@ internal sealed class Shell : Form
         finally { AttachThreadInput(mine, other, false); }
     }
 
-    private void HideOverlay()
+    private void HideOverlay(string from)
     {
         if (!Visible) return;
         Hide();
         SaveHistory();
-        Log("окно спрятано");
+        Log("окно спрятано · " + from);
     }
 
     protected override void OnDeactivate(EventArgs e)
     {
         base.OnDeactivate(e);
         // сразу после показа фокус может мигнуть — не прячемся в этот момент
-        if (Visible && !_exiting && (DateTime.UtcNow - _shownAt) > TimeSpan.FromMilliseconds(400)) HideOverlay();
+        if (Visible && !_exiting && (DateTime.UtcNow - _shownAt) > TimeSpan.FromMilliseconds(400)) HideOverlay("потеря фокуса");
     }
 
     protected override void OnClientSizeChanged(EventArgs e)
@@ -442,9 +463,9 @@ internal sealed class Shell : Form
                 if (!IsHttp(url)) break;
                 RecordHit(url!);
                 OpenExternal(url!);
-                HideOverlay();
+                HideOverlay("открыт сайт");
                 break;
-            case "hide": HideOverlay(); break;
+            case "hide": HideOverlay("Esc"); break;
             case "quit": ExitApp(); break;
             case "autostart":
                 if (_autostart is not null) _autostart.Checked = TrySetAutostart(!_autostart.Checked);
@@ -540,9 +561,9 @@ internal sealed class Shell : Form
 
     protected override void WndProc(ref Message m)
     {
-        if ((m.Msg == WM_HOTKEY && m.WParam == (IntPtr)HotkeyId) || m.Msg == Program.WM_APP_SUMMON)
+        if (m.Msg == Program.WM_APP_SUMMON)
         {
-            ToggleOverlay();
+            ToggleOverlay("второй запуск exe");
             m.Result = IntPtr.Zero;
             return;
         }
@@ -551,7 +572,9 @@ internal sealed class Shell : Form
 
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
-        if (_hotkeyTaken) UnregisterHotKey(Handle, HotkeyId);
+        _poll.Stop();
+        _poll.Tick -= OnPollTick;
+        _poll.Dispose();
         _tray?.Dispose();
         if (_iconHandle != IntPtr.Zero) DestroyIcon(_iconHandle);
         _flush.Dispose();
@@ -582,12 +605,11 @@ internal sealed class Shell : Form
     }
 
     private const int
-        WM_HOTKEY = 0x0400,
-        MOD_MENU = 0x0001, MOD_CONTROL = 0x0002, MOD_SHIFT = 0x0004, MOD_WIN = 0x0008, MOD_NOREPEAT = 0x4000,
-        VK_SPACE = 0x20, VK_K = 0x4B, VK_RETURN = 0x0D, VK_ESCAPE = 0x1B, VK_TAB = 0x09, VK_F1 = 0x70;
+        MOD_MENU = 0x0001, MOD_CONTROL = 0x0002, MOD_SHIFT = 0x0004, MOD_WIN = 0x0008,
+        VK_SPACE = 0x20, VK_RETURN = 0x0D, VK_ESCAPE = 0x1B, VK_TAB = 0x09, VK_F1 = 0x70,
+        VK_SHIFT = 0x10, VK_CONTROL = 0x11, VK_MENU = 0x12, VK_LWIN = 0x5B, VK_RWIN = 0x5C;
 
-    [DllImport("user32.dll")] private static extern bool RegisterHotKey(IntPtr h, int id, uint mod, uint vk);
-    [DllImport("user32.dll")] private static extern bool UnregisterHotKey(IntPtr h, int id);
+    [DllImport("user32.dll")] private static extern short GetAsyncKeyState(int vk);
     [DllImport("user32.dll")] private static extern bool DestroyIcon(IntPtr h);
     [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr h);

@@ -8,7 +8,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>WebTop</RootNamespace>
     <AssemblyName>webtop</AssemblyName>
-    <Version>0.1.1</Version>
+    <Version>0.1.2</Version>
     <Product>webtop</Product>
     <Description>Браузер, который находит один самый популярный сайт</Description>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
