@@ -405,6 +405,10 @@ function webList(q){
   const ds=[...WEB].sort((a,b)=>(HIST[rootOf(b)]?.n||0)-(HIST[rootOf(a)]?.n||0));
   return ds.map(d=>webHit(d,q));
 }
+function firstGoogleHit(q){
+  const s=SITES.find(x=>x.d==="google.com");
+  return {...hit("Первый сайт в Google","по запросу «"+q+"»",SQ["google.com"]+encodeURIComponent(q),"нет совпадений в каталоге",s),googleQuery:q};
+}
 function whyTop(s,v){
   const h=HIST[rootOf(s.d)];
   if(h)return "открывали "+h.n+(h.n===1?" раз":" раза");
@@ -437,7 +441,7 @@ function plan(raw){
     }
   }
   const rows0=bySites(toks);
-  const rows=toks.length>2?[]:rows0;   // длинная фраза — это запрос, а не название сайта
+  const rows=toks.length>2?[]:rows0.filter(([,m])=>m>=.5);   // длинная фраза — это запрос, а не название сайта
   const best=rows.length?rows[0][1]:0;
   const hits=rows.slice(0,5).map(([s,m,v])=>hit(s.n,s.d,s.u,whyTop(s,v),s));
   return {hits,cat:null,web:best<.5?text:null};
@@ -486,12 +490,8 @@ function render(raw){
   current=p.hits;
 
   if(!p.hits.length&&p.web){
-    const list=webList(p.web);
-    current=[list[0]];
-    showHero(her,list[0]);
-    for(const h of list.slice(1,4)){
-      const b=el("button",null,h.n);b.onclick=()=>open(h);als.append(b,el("b",null,"в интернете"));
-    }
+    current=[firstGoogleHit(p.web)];
+    showHero(her,current[0]);
     $("answer").classList.add("on");return;
   }
   if(!p.hits.length){$("answer").classList.remove("on");return}
@@ -523,6 +523,7 @@ function showHero(her,h){
 }
 function open(h){
   if(!h||!h.u)return;
+  if(h.googleQuery){post({type:"first-google",text:h.googleQuery});return}
   const r=rootOf(hostOf(h.u));
   if(r){
     LAST=r;
@@ -542,7 +543,7 @@ $("q").addEventListener("keydown",e=>{
   if(e.key==="Enter"){
     e.preventDefault();
     const text=e.target.value.trim();
-    open(current[0]||(text?webList(text)[0]:null));
+    open(current[0]||(text?firstGoogleHit(text):null));
     return;
   }
   if(e.key==="Escape"){

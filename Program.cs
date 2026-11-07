@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Drawing.Drawing2D;
+using System.Net.Http;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using Microsoft.Win32;
@@ -56,6 +57,7 @@ internal sealed class Shell : Form
     private bool _dirty;
     private bool _allowVisible;
     private bool _exiting;
+    private bool _findingGoogle;
     private readonly System.Windows.Forms.Timer _poll = new() { Interval = 20 };
     private uint _hotkeyMod, _hotkeyVk;
     private bool _comboWasDown;
@@ -465,6 +467,9 @@ internal sealed class Shell : Form
                 OpenExternal(url!);
                 HideOverlay("открыт сайт");
                 break;
+            case "first-google":
+                if (!string.IsNullOrWhiteSpace(text)) _ = OpenFirstGoogleAsync(text);
+                break;
             case "hide": HideOverlay("Esc"); break;
             case "quit": ExitApp(); break;
             case "autostart":
@@ -483,6 +488,60 @@ internal sealed class Shell : Form
         hit.N++;
         hit.T = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         _dirty = true;
+    }
+
+    private static readonly HttpClient GoogleSearch = new(new HttpClientHandler { AllowAutoRedirect = false })
+    {
+        Timeout = TimeSpan.FromSeconds(12)
+    };
+
+    private async Task OpenFirstGoogleAsync(string query)
+    {
+        if (_findingGoogle) return;
+        _findingGoogle = true;
+        HideOverlay("поиск первого сайта в Google");
+        string url = "https://www.google.com/search?q=" + Uri.EscapeDataString(query);
+        try
+        {
+            string? first = await GetFirstGoogleUrlAsync(query);
+            if (first is not null) url = first;
+            else Log("Google не вернул первый сайт — открываю выдачу");
+        }
+        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException)
+        {
+            Log("первый сайт Google недоступен: " + ex.Message);
+        }
+        finally { _findingGoogle = false; }
+        if (_exiting || IsDisposed) return;
+        RecordHit(url);
+        await InjectAsync();
+        if (_exiting || IsDisposed) return;
+        OpenExternal(url);
+    }
+
+    private static async Task<string?> GetFirstGoogleUrlAsync(string query)
+    {
+        string url = "https://www.google.com/search?btnI=1&q=" + Uri.EscapeDataString(query);
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        using var response = await GoogleSearch.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+        int status = (int)response.StatusCode;
+        if (status < 300 || status >= 400 || response.Headers.Location is not { } location) return null;
+        return Uri.TryCreate(new Uri(url), location, out var redirect) ? GoogleRedirectTarget(redirect) : null;
+    }
+
+    private static string? GoogleRedirectTarget(Uri redirect)
+    {
+        if (redirect.Scheme != Uri.UriSchemeHttps || redirect.Host != "www.google.com" ||
+            redirect.AbsolutePath != "/url" || redirect.UserInfo.Length != 0) return null;
+        foreach (string part in redirect.Query.TrimStart('?').Split('&'))
+        {
+            if (!part.StartsWith("q=", StringComparison.Ordinal)) continue;
+            string value = Uri.UnescapeDataString(part[2..].Replace("+", " "));
+            if (value.Any(char.IsControl) || !Uri.TryCreate(value, UriKind.Absolute, out var target) ||
+                !IsHttp(value) || target.UserInfo.Length != 0) return null;
+            return target.AbsoluteUri;
+        }
+        return null;
     }
 
     private void OpenExternal(string url)
