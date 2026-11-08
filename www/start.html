@@ -561,6 +561,7 @@ window.__ready=m=>{
   render($("q").value);
 };
 window.__show=()=>{
+  $("when").textContent=whenText();
   $("q").value="";render("");
   setTimeout(()=>$("q").focus(),20);
 };

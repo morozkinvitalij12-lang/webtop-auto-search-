@@ -12,9 +12,9 @@ jobs:
   windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "10.0.x"
 
@@ -30,7 +30,7 @@ jobs:
           "exe size: $mb MB" | Out-File -Append $env:GITHUB_STEP_SUMMARY
           if ($mb -gt 98) { "WARNING: больше 100 MB — GitHub не примет такой ассет, нужен zip-вариант" | Out-File -Append $env:GITHUB_STEP_SUMMARY }
 
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         if: startsWith(github.ref, 'refs/tags/v')
         with:
           files: out/webtop-windows-x64.exe
@@ -38,7 +38,7 @@ jobs:
             Один файл: скачай → запусти → напиши две буквы.
             Нужен WebView2 Runtime (ставится вместе с Edge).
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: "!startsWith(github.ref, 'refs/tags/v')"
         with:
           name: webtop-windows-x64

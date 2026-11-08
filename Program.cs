@@ -133,6 +133,7 @@ internal sealed class Shell : Form
             core.NavigationCompleted += (_, a) =>
             {
                 if (!a.IsSuccess) Log("start.html: " + a.WebErrorStatus);
+                if (!Visible) _ = SuspendHiddenAsync();
             };
 
             _ready = true;
@@ -387,6 +388,7 @@ internal sealed class Shell : Form
         _allowVisible = true;
         _shownAt = DateTime.UtcNow;
         Show();
+        if (_ui.CoreWebView2 is { IsSuspended: true } awake) awake.Resume();
         BringToForeground();
         _ = _ui.CoreWebView2?.ExecuteScriptAsync("window.__show&&window.__show()");
         Log("окно показано · вызов: " + from);
@@ -418,7 +420,23 @@ internal sealed class Shell : Form
         if (!Visible) return;
         Hide();
         SaveHistory();
+        _ = SuspendHiddenAsync();
         Log("окно спрятано · " + from);
+    }
+
+    /// <summary>
+    /// Скрытая карточка иначе продолжает рисовать свою анимацию: это сотни мегабайт
+    /// и заметная доля ядра. Сон останавливает таймеры и анимацию страницы до показа.
+    /// </summary>
+    private async Task SuspendHiddenAsync()
+    {
+        var core = _ui.CoreWebView2;
+        if (!_ready || core is null || _exiting) return;
+        try
+        {
+            if (!Visible) await core.TrySuspendAsync();
+        }
+        catch (Exception ex) when (ex is COMException or InvalidOperationException) { }
     }
 
     protected override void OnDeactivate(EventArgs e)

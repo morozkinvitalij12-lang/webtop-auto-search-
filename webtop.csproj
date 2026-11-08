@@ -8,7 +8,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>WebTop</RootNamespace>
     <AssemblyName>webtop</AssemblyName>
-    <Version>0.1.3</Version>
+    <Version>0.1.4</Version>
     <Product>webtop</Product>
     <Description>Браузер, который находит один самый популярный сайт</Description>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
@@ -21,7 +21,22 @@
     <DebugType>none</DebugType>
     <DebugSymbols>false</DebugSymbols>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <AllowedReferenceRelatedFileExtensions>none</AllowedReferenceRelatedFileExtensions>
   </PropertyGroup>
+
+  <!-- Пакет WebView2 подключает и WPF-сборку, хотя интерфейс на WinForms: она тянет
+       конфликтующий WindowsBase (MSB3277) и занимает место в exe. -->
+  <Target Name="DropUnusedWebView2Wpf" BeforeTargets="ResolveAssemblyReferences">
+    <ItemGroup>
+      <Reference Remove="@(Reference)" Condition="$([System.String]::Copy('%(Reference.Filename)').EndsWith('WebView2.Wpf'))" />
+    </ItemGroup>
+  </Target>
+
+  <Target Name="DropUnusedWebView2WpfFromPublish" AfterTargets="ComputeResolvedFilesToPublishList">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)" Condition="$([System.String]::Copy('%(Filename)').EndsWith('WebView2.Wpf'))" />
+    </ItemGroup>
+  </Target>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4314.35" />
